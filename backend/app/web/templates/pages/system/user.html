@@ -1,0 +1,95 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:user:create">新建用户</button>
+  <button class="btn" id="btn-import" data-perm="system:user:import">导入用户</button>
+  <button class="btn" id="btn-export" data-perm="system:user:export">导出 CSV</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='用户名 / 昵称 / 邮箱') }}
+    {{ ui.filter_select('部门', 'dept_id', [], id='f-dept', all_label='全部部门') }}
+    {{ ui.filter_select('角色', 'role_id', [], id='f-role', all_label='全部角色') }}
+  {% endcall %}
+
+  {{ ui.batch_bar('user-batch-bar', [
+    {'act': 'enable', 'label': '批量启用', 'perm': 'system:user:status'},
+    {'act': 'disable', 'label': '批量禁用', 'perm': 'system:user:status'},
+    {'act': 'delete', 'label': '批量删除', 'perm': 'system:user:delete', 'danger': true}
+  ]) }}
+
+  {{ ui.data_table([
+    ('用户名', '150px'),
+    ('昵称', '150px'),
+    ('部门', '150px'),
+    ('角色', '190px'),
+    ('状态', '150px'),
+    ('最近登录', '180px'),
+    ('创建时间', '180px'),
+    ('操作', '250px')
+  ], selectable=true) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('user-modal', '新建用户', size='wide', form_id='user-form', submit_id='user-submit') %}
+  <div class="form-grid">
+    {{ ui.field('用户名', 'username', required=True, id='u-username', placeholder='登录用户名',
+                attrs='pattern="[A-Za-z0-9_.-]{3,32}" data-pattern-message="3-32 位字母、数字、下划线、点或中划线" data-label="用户名"') }}
+    {{ ui.field('昵称', 'nickname', required=True, id='u-nickname', maxlength=64,
+                placeholder='显示名称', attrs='data-label="昵称"') }}
+    {{ ui.field('初始密码', 'password', type='password', id='u-password',
+                hint='至少 8 位，必须同时包含字母和数字', hint_id='password-help',
+                attrs='autocomplete="new-password" data-label="初始密码" data-new-only') }}
+    {{ ui.switch_field('首次登录强制改密', 'must_change_password', '登录后必须先改密码',
+                       checked=True, span=None) }}
+    {{ ui.select_field('部门', 'dept_id', [], id='u-dept', placeholder='未分配', attrs='data-type="number"') }}
+    {{ ui.multi_select_field('角色', 'role_ids', '选择角色', id='u-roles') }}
+    {{ ui.field('邮箱', 'email', type='email', id='u-email', placeholder='name@example.com',
+                attrs='data-type="nullable"') }}
+    {{ ui.field('手机号', 'phone', id='u-phone', placeholder='手机号', attrs='data-type="nullable"') }}
+    {{ ui.select_field('状态', 'status', [('active', '启用'), ('disabled', '禁用')], id='u-status') }}
+    {{ ui.switch_field('超级管理员', 'is_superuser', '仅超级管理员可以授予该身份',
+                       id='u-super', text_id='u-super-hint') }}
+    {{ ui.textarea_field('备注', 'remark', rows=3, id='u-remark', maxlength=500,
+                         span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+
+{% call ui.modal('reset-modal', '重置密码', form_id='reset-form', submit_label='重置', submit_id='reset-submit') %}
+  <div id="reset-alert" class="login-notice hidden" style="background:var(--warning-weak);color:#ad6800"></div>
+  {{ ui.field('新密码', 'new_password', type='password', required=True, id='r-password',
+              hint='至少 8 位，必须同时包含字母和数字', hint_id='reset-help',
+              attrs='autocomplete="new-password" data-label="新密码"') }}
+  {{ ui.switch_field('下次登录强制修改', 'must_change_password', '下次登录必须先改密码', checked=True) }}
+{% endcall %}
+
+{% call ui.modal('role-modal', '分配角色', form_id='role-form', submit_id='role-submit') %}
+  {{ ui.multi_select_field('角色', 'role_ids', '选择角色', id='assign-roles') }}
+{% endcall %}
+
+{% call ui.modal('ban-modal', '封禁用户', form_id='ban-form', submit_label='封禁', submit_id='ban-submit',
+                 submit_class='btn-danger', perm='security:user-ban:ban') %}
+  <div id="ban-target" class="muted" style="margin-bottom:12px"></div>
+  <div class="form-grid">
+    {{ ui.textarea_field('封禁原因', 'reason', rows=3, id='ban-reason', maxlength=255, span=2,
+                         placeholder='将展示给该用户登录时的提示', attrs='data-type="nullable"') }}
+    {{ ui.field('解封时间', 'until', type='datetime-local', id='ban-until',
+                hint='留空表示永久封禁。', span=2, attrs='data-type="nullable"') }}
+    {{ ui.switch_field('同时封禁该账号常用 IP', 'ban_ip', '把最近登录 IP 加入封禁网段，防止换账号重试',
+                       checked=True, span=2, id='ban_ip') }}
+    {{ ui.field('IP 封禁时长（分钟）', 'ip_minutes', type='number', value=0, id='ban-ip-minutes',
+                hint='0 表示永久；仅在勾选上一项时生效。', span=2,
+                attrs='min="0" max="525600" data-type="number"') }}
+  </div>
+{% endcall %}
+
+{{ ui.import_modal('import-modal', '导入用户',
+    hint='表头支持中英文：用户名/username、密码/password、昵称/nickname、部门ID/dept_id、角色ID/role_ids、邮箱/email、手机号/phone、状态/status、备注/remark。单次最多 500 行。',
+    form_id='import-form', perm='system:user:import') }}
+
+{% call ui.modal('import-result-modal', '导入结果', body_id='import-result-body', cancel_label='关闭') %}{% endcall %}
+{% endblock %}

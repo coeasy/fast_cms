@@ -1,0 +1,32 @@
+# {{ title }} 代码生成结果
+
+表：`{{ table }}`；模块：`{{ module }}`；资源：`{{ resource }}`；主键：`{{ pk.name }}`。
+
+## 接入步骤
+
+1. 将 `model.py`、`schemas.py`、`service.py`、`router.py` 复制到 `backend/app/modules/{{ module }}/`。
+2. 在 `backend/app/main.py` 中注册生成的 router。
+3. 将生成文件中的相对导入（`.model`、`.schemas`）保持在同一模块包内。
+4. 在 `backend/app/bootstrap/permissions.py` 注册以下权限码，并执行 `python -m app.cli sync-rbac`：
+
+```text
+{{ permission_prefix }}:list
+{{ permission_prefix }}:create
+{{ permission_prefix }}:update
+{{ permission_prefix }}:delete
+```
+
+5. 将 `frontend/page.html` 复制到 `backend/app/web/templates/pages/{{ module }}/{{ resource }}.html`，
+   将 `frontend/index.js` 复制到 `backend/app/web/static/js/pages/{{ module }}/{{ resource }}.js`；
+   在 `backend/app/web/router.py` 的 `PAGES` 里增加一条页面（`page` 取 `{{ module }}/{{ resource }}`），
+   并在菜单管理或 `backend/app/bootstrap/menus.py` 中注册菜单。
+   页面脚本里的 `const API` 是**去掉前缀**的路径，由请求层补回，因此调整 `API_PREFIX` 不需要重新生成页面。
+6. 生成的 model 映射已有表，不会自动创建迁移；如需要新表，请单独编写 Alembic 迁移。
+
+## 注意
+
+- 生成器不会覆盖已有文件；再次生成请使用新的资源名或先人工合并。
+- 路由已声明 `{{ permission_prefix }}:*` 权限码，但不会自动写入权限注册表或角色，请按接入步骤注册并授权。
+- 生成代码不包含数据范围、审计增强和前端菜单记录，请按实际业务补充。
+- `manifest.json` 记录文件清单与 SHA-256，可用于核对生成结果。
+- 仅支持单表、单列主键；系统表和联合主键会被拒绝。

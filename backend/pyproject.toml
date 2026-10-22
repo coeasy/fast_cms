@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastcms-backend"
+version = "0.1.0"
+description = "Fast CMS admin backend"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.136,<0.151",
+  "uvicorn[standard]>=0.34,<0.55",
+  "sqlalchemy[asyncio]>=2.0,<2.2",
+  "alembic>=1.14,<2",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "aiosqlite>=0.20,<1",
+  "aiomysql>=0.2,<1",
+  "APScheduler>=3.10,<4",
+  # 系统时区在启动时就要校验 IANA 时区名，镜像里没有 /usr/share/zoneinfo 时靠它兜底，
+  # 不能只靠 tzlocal 的传递依赖
+  "tzdata>=2024.1",
+  "PyJWT>=2.10,<3",
+  "argon2-cffi>=23,<26",
+  "redis>=5,<9",
+  "psutil>=6,<8",
+  "Jinja2>=3.1,<4",
+  "filetype>=1.2,<2",
+  "python-multipart>=0.0.18,<1",
+  "httpx>=0.28,<1",
+  # 离线 IP 归属地查询（xdb 二进制库随包发布在 backend/app/ip_data/），
+  # 不依赖任何外网服务；库缺失时功能自动降级，不影响启动
+  "py-ip2region>=3.0.6,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.24,<2",
+  "ruff>=0.9,<1",
+  "mypy>=1.14,<2",
+  "types-psutil>=6,<8",
+  "fakeredis>=2.26,<3",
+]
+
+[tool.mypy]
+python_version = "3.12"
+no_implicit_optional = true
+warn_redundant_casts = true
+
+# 这两个库未发布类型信息；psutil 由 types-psutil 提供存根
+[[tool.mypy.overrides]]
+module = ["filetype.*", "apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# 页面模板与静态资源是后端的一部分：非 editable 安装（wheel）也必须带上，
+# 否则装完页面 500、静态资源 404。editable 安装直接从源码读取，不受影响。
+[tool.setuptools.package-data]
+"app.web" = ["templates/**/*.html", "static/**/*.css", "static/**/*.js", "static/**/*.svg"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]

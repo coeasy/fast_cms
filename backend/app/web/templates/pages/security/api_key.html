@@ -1,0 +1,51 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="security:api-key:create">新建 API Key</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='名称 / 备注') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('名称', '170px'),
+    ('Key 前缀', '200px'),
+    ('权限范围', ''),
+    ('状态', '90px'),
+    ('最近使用', '170px'),
+    ('最近使用 IP', '140px'),
+    ('创建人', '110px'),
+    ('操作', '140px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('key-modal', '新建 API Key', size='wide', form_id='key-form', submit_id='key-submit') %}
+  <div class="form-grid">
+    {{ ui.field('名称', 'name', required=True, id='k-name', maxlength=64, placeholder='如：BI 系统同步',
+                hint='仅用于标识用途，可随时修改。', attrs='data-label="名称"') }}
+    {{ ui.field('权限范围', 'scopes', id='k-scopes', maxlength=2000, span=2,
+                placeholder='多个权限码用英文逗号分隔；留空表示无任何权限',
+                hint='只能填写自己已具备的权限码，如 system:user:list,monitor:login-log:list；超级管理员可填 * 表示全部') }}
+    {{ ui.field('到期时间', 'expires_at', type='datetime-local', id='k-expires',
+                hint='留空表示长期有效。', attrs='data-type="nullable"') }}
+    {{ ui.textarea_field('备注', 'remark', rows=3, id='k-remark', maxlength=255, span=2,
+                         attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+
+{% call ui.modal('secret-modal', 'API Key 已创建', body_id='secret-body', cancel_label='我已保存') %}
+  <div class="login-notice" style="background:var(--warning-weak);color:#ad6800;margin-bottom:12px">
+    明文只显示这一次，关闭后无法再次查看。请立即复制并妥善保存。
+  </div>
+  <div class="secret-box">
+    <span id="secret-value" style="flex:1"></span>
+    <button type="button" class="btn" id="secret-copy">复制</button>
+  </div>
+{% endcall %}
+{% endblock %}

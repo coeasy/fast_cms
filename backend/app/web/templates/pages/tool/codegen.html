@@ -1,0 +1,43 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-refresh">刷新表清单</button>
+{% endcall %}
+
+<div class="split-panel">
+  {% call ui.card(title='数据表', extra='<span class="tiny muted" id="table-count"></span>') %}
+    <div style="padding:12px 16px;border-bottom:1px solid var(--split)">
+      <input class="input" id="table-search" placeholder="搜索表名">
+    </div>
+    <ul class="list-plain" id="table-list" style="max-height:62vh;overflow:auto"></ul>
+  {% endcall %}
+
+  {% call ui.card(title='生成配置', title_id='detail-title', extra='
+      <button class="btn btn-sm" id="btn-preview" data-perm="tool:codegen:generate" disabled>预览</button>
+      <button class="btn btn-sm" id="btn-download" data-perm="tool:codegen:generate" disabled>下载 zip</button>
+      <button class="btn btn-sm btn-primary" id="btn-write" data-perm="tool:codegen:generate" disabled>写入项目</button>',
+      body=True) %}
+    <div class="form-grid">
+      {{ ui.field('模块名', 'module', id='g-module', maxlength=64, placeholder='如 crm', star=True) }}
+      {{ ui.field('资源名', 'resource', id='g-resource', maxlength=64, placeholder='默认取表名去掉前缀') }}
+      {{ ui.field('页面标题', 'title', id='g-title', maxlength=64, span=2, placeholder='如 客户管理') }}
+    </div>
+    <div class="divider"></div>
+    <div class="tiny muted mb-8" id="columns-title">选择左侧数据表查看字段</div>
+    {{ ui.data_table([
+      ('字段', '220px'),
+      ('类型', '160px'),
+      ('可空', '100px'),
+      ('主键', '100px'),
+      '默认值'
+    ], tbody_id='column-rows', compact=True, empty='未选择数据表') }}
+  {% endcall %}
+</div>
+
+{% call ui.modal('preview-modal', '代码预览', size='xwide', cancel_label='关闭') %}
+  <div class="tabs" id="preview-tabs"></div>
+  <pre class="code" id="preview-code" style="max-height:56vh"></pre>
+{% endcall %}
+{% endblock %}

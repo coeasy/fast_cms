@@ -1,0 +1,43 @@
+{% set TB = "{%" %}{% set TE = "%}" %}{% set O = "{{" %}{% set C = "}}" %}
+{{ TB }} extends "layouts/admin.html" {{ TE }}
+{{ TB }} import "components/ui.html" as ui with context {{ TE }}
+
+{{ TB }} block content {{ TE }}
+{{ TB }} call ui.page_head() {{ TE }}
+  <button class="btn btn-primary" id="btn-create" data-perm="{{ permission_prefix }}:create">新建</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{{ TB }} endcall {{ TE }}
+
+{{ TB }} call ui.card() {{ TE }}
+  {{ TB }} call ui.filter_form() {{ TE }}
+{% set filterable = columns | rejectattr('primary_key') | list %}
+{% for column in filterable[:3] %}
+    {{ O }} ui.filter_input('{{ column.name }}', '{{ column.name }}') {{ C }}
+{% endfor %}
+  {{ TB }} endcall {{ TE }}
+
+  {{ O }} ui.data_table([
+{% for column in columns %}
+    ('{{ column.name }}', {% if loop.first %}'200px'{% else %}''{% endif %}),
+{% endfor %}
+    ('操作', '160px')
+  ]) {{ C }}
+  {{ O }} ui.pager() {{ C }}
+{{ TB }} endcall {{ TE }}
+
+{{ TB }} call ui.modal('{{ resource }}-modal', '新建{{ title }}', form_id='{{ resource }}-form', submit_id='{{ resource }}-submit') {{ TE }}
+  <div class="form-grid">
+{% for column in writable_columns %}
+{% if column.py_type == 'bool' %}
+    {{ O }} ui.switch_field('{{ column.name }}', '{{ column.name }}', '{{ column.name }}') {{ C }}
+{% elif column.py_type in ['datetime', 'date'] %}
+    {{ O }} ui.field('{{ column.name }}', '{{ column.name }}', type='datetime-local'{% if not column.nullable %}, required=True, attrs='data-label="{{ column.name }}"'{% endif %}) {{ C }}
+{% elif column.py_type in ['int', 'float', 'Decimal'] %}
+    {{ O }} ui.field('{{ column.name }}', '{{ column.name }}', type='number'{% if not column.nullable %}, required=True, attrs='step="{% if column.py_type == 'int' %}1{% else %}any{% endif %}" data-label="{{ column.name }}"'{% else %}, attrs='step="{% if column.py_type == 'int' %}1{% else %}any{% endif %}"'{% endif %}) {{ C }}
+{% else %}
+    {{ O }} ui.field('{{ column.name }}', '{{ column.name }}', maxlength=255{% if not column.nullable %}, required=True, attrs='data-label="{{ column.name }}"'{% endif %}) {{ C }}
+{% endif %}
+{% endfor %}
+  </div>
+{{ TB }} endcall {{ TE }}
+{{ TB }} endblock {{ TE }}

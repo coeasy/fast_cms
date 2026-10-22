@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class {{ class_name }}Create(BaseModel):
+{% for column in writable_columns %}
+{% if column.nullable %}
+    {{ column.name }}: {{ column.py_type }} | None = None
+{% else %}
+    {{ column.name }}: {{ column.py_type }} = Field(description="{{ column.name }}")
+{% endif %}
+{% endfor %}
+{% if not writable_columns %}
+    pass
+{% endif %}
+
+
+class {{ class_name }}Update(BaseModel):
+{% for column in writable_columns %}
+    {{ column.name }}: {{ column.py_type }} | None = None
+{% endfor %}
+{% if not writable_columns %}
+    pass
+{% endif %}
+
+
+class {{ class_name }}Out(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+{% for column in columns %}
+    {{ column.name }}: {{ column.py_type }}{{ ' | None = None' if column.nullable else '' }}
+{% endfor %}

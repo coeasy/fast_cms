@@ -1,0 +1,35 @@
+{% extends "layouts/portal.html" %}
+
+{% block portal_content %}
+<section class="portal-hero">
+  <span class="eyebrow">Fast CMS</span>
+  <h1 id="portal-hero-title">轻量、可靠的一体化后台管理系统</h1>
+  <p>
+    后端 FastAPI + SQLite 开箱即用，前端由后端直接输出 HTML，无需 Node 构建、无需单独部署前端进程。
+    一个端口、一条命令即可跑起完整的权限、审计、定时任务与内容管理能力。
+  </p>
+  <div class="btn-row" style="justify-content:center">
+    <a class="btn btn-primary" style="height:40px;padding:0 22px" href="{{ admin_base }}login">立即登录</a>
+    <a class="btn" style="height:40px;padding:0 22px" href="/docs">接口文档</a>
+  </div>
+</section>
+
+<section class="portal-cards">
+  <div class="portal-card">
+    <h3>权限与数据范围</h3>
+    <p>用户、角色、菜单、部门与权限注册表；数据范围在服务端生效，前端隐藏只是体验优化。</p>
+  </div>
+  <div class="portal-card">
+    <h3>审计与监控</h3>
+    <p>登录日志、操作日志、在线会话、强制下线与服务器资源监控，全部可导出 CSV。</p>
+  </div>
+  <div class="portal-card">
+    <h3>定时任务</h3>
+    <p>注册表任务与 Python 脚本任务，支持 Cron / 间隔 / 单次触发、暂停恢复与执行日志。</p>
+  </div>
+  <div class="portal-card">
+    <h3>内容与通知</h3>
+    <p>公告发布与站内通知，钉钉 / 飞书 / 企业微信 / Webhook 渠道推送与失败重试。</p>
+  </div>
+</section>
+{% endblock %}

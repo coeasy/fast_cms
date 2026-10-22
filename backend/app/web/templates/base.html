@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-dark="0" data-layout="mix">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{{ page_title }} · {{ app_name }}{% endblock %}</title>
+
+  {# 组件层：设计令牌 + 重置 + 通用组件，所有界面都加载 #}
+  <link rel="stylesheet" href="{{ base }}static/css/base.css">
+  {# 骨架层：后台 / 前台 / 公共页面各自追加自己的样式表 #}
+  {% block styles %}{% endblock %}
+
+  {% include "partials/theme-boot.html" %}
+
+  {# 页面运行参数用 JSON 数据块传递而不是内联脚本：CSP 禁掉 unsafe-inline 后仍能工作 #}
+  <script type="application/json" id="fastcms-config">{{ {
+      "base": base,
+      "apiBase": api_prefix,
+      "portalBase": portal_base,
+      "page": page_path,
+      "version": app_version
+    } | tojson }}</script>
+</head>
+<body data-page="{{ page_key }}" data-title="{{ page_title }}">
+{% block body %}{% endblock %}
+<noscript>
+  <div style="padding:24px;text-align:center">本系统需要启用 JavaScript 才能使用。</div>
+</noscript>
+<script type="module" src="{{ base }}static/js/app.js"></script>
+</body>
+</html>

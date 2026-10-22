@@ -1,0 +1,45 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="refresh">{{ ui.icon('refresh', 15) }} 刷新</button>
+{% endcall %}
+
+<div class="stat-grid">
+  {{ ui.stat('用户总数', 'total_users', 'users') }}
+  {{ ui.stat('启用用户', 'active_users', 'check', 'var(--success)', 'var(--success-weak)') }}
+  {{ ui.stat('在线用户', 'online_users', 'online', '#08979c', 'rgba(19,194,194,.14)') }}
+  {{ ui.stat('部门 / 角色', 'dept_role', 'layers', '#722ed1', 'rgba(114,46,209,.12)') }}
+  {{ ui.stat('已发布公告', 'published_notices', 'doc', '#d46b08', 'rgba(250,140,22,.14)') }}
+  {{ ui.stat('启用任务', 'enabled_jobs', 'clock', '#2f54eb', 'rgba(47,84,235,.12)') }}
+  {{ ui.stat('今日登录成功', 'today_login_success', 'check', 'var(--success)', 'var(--success-weak)') }}
+  {{ ui.stat('今日登录失败', 'today_login_failure', 'alert', 'var(--danger)', 'var(--danger-weak)') }}
+</div>
+
+<div class="grid-2 mt-16">
+  {% call ui.card(title='近 7 天登录趋势', extra='
+      <span class="legend"><i style="background:var(--success)"></i>成功</span>
+      <span class="legend"><i style="background:var(--danger)"></i>失败</span>', body=True) %}
+    <div id="trend-chart"></div>
+  {% endcall %}
+
+  {% call ui.card(title='最近登录记录', body=True, tight=True) %}
+    {{ ui.data_table([
+      ('用户', '110px'),
+      ('结果', '80px'),
+      ('IP', '130px'),
+      '时间'
+    ], tbody_id='recent-logins') }}
+  {% endcall %}
+</div>
+
+{% call ui.card(title='最近任务执行', body=True, tight=True) %}
+  {{ ui.data_table([
+    ('任务', '240px'),
+    ('状态', '100px'),
+    ('耗时', '110px'),
+    '开始时间'
+  ], tbody_id='recent-jobs') }}
+{% endcall %}
+{% endblock %}

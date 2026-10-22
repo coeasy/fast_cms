@@ -1,0 +1,51 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-refresh">{{ ui.icon('refresh', 15) }} 刷新</button>
+{% endcall %}
+
+<div class="stat-grid mb-16">
+  <div class="stat">
+    <div class="grow">
+      <div class="k">CPU 使用率</div>
+      <div class="v" id="cpu-percent">-</div>
+      <div class="progress mt-8"><i id="cpu-bar" style="width:0%"></i></div>
+      <div class="tiny muted mt-8" id="cpu-detail">-</div>
+    </div>
+  </div>
+  <div class="stat">
+    <div class="grow">
+      <div class="k">内存使用率</div>
+      <div class="v" id="mem-percent">-</div>
+      <div class="progress mt-8"><i id="mem-bar" style="width:0%"></i></div>
+      <div class="tiny muted mt-8" id="mem-detail">-</div>
+    </div>
+  </div>
+  <div class="stat">
+    <div class="grow">
+      <div class="k">磁盘使用率</div>
+      <div class="v" id="disk-percent">-</div>
+      <div class="progress mt-8"><i id="disk-bar" style="width:0%"></i></div>
+      <div class="tiny muted mt-8" id="disk-detail">-</div>
+    </div>
+  </div>
+  <div class="stat">
+    <div class="grow">
+      <div class="k">进程内存</div>
+      <div class="v" id="proc-rss">-</div>
+      <div class="tiny muted mt-8" id="proc-detail">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  {% call ui.card(title='操作系统', body=True) %}
+    <div class="desc-grid" id="os-desc"></div>
+  {% endcall %}
+  {% call ui.card(title='运行环境', body=True) %}
+    <div class="desc-grid" id="runtime-desc"></div>
+  {% endcall %}
+</div>
+{% endblock %}

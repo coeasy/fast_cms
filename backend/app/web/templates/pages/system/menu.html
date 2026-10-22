@@ -1,0 +1,56 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% set ICON_OPTIONS = [
+  ('DashboardOutlined', '工作台'),
+  ('SettingOutlined', '设置'),
+  ('MonitorOutlined', '监控'),
+  ('ScheduleOutlined', '定时'),
+  ('SoundOutlined', '公告'),
+  ('BellOutlined', '通知'),
+  ('ToolOutlined', '工具'),
+  ('UserOutlined', '用户')
+] %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:menu:create">新建菜单</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {{ ui.data_table([
+    ('名称', '260px'),
+    ('类型', '100px'),
+    ('路径', '180px'),
+    ('权限码', '200px'),
+    ('图标', '120px'),
+    ('排序', '80px'),
+    ('可见', '90px'),
+    ('状态', '90px'),
+    ('操作', '180px')
+  ]) }}
+{% endcall %}
+
+{% call ui.modal('menu-modal', '新建菜单', size='wide', form_id='menu-form', submit_id='menu-submit') %}
+  <div class="form-grid">
+    {{ ui.select_field('上级', 'parent_id', [], id='m-parent', placeholder='顶级', attrs='data-type="number"') }}
+    {{ ui.select_field('类型', 'type', [('directory', '目录'), ('menu', '菜单'), ('button', '按钮')],
+                       id='m-type', required=True) }}
+    {{ ui.field('名称', 'name', required=True, id='m-name', maxlength=64, attrs='data-label="名称"') }}
+    {{ ui.field('路径', 'path', id='m-path', maxlength=128, placeholder='如 /system/user',
+                hint='目录可留空；菜单需填写站内路径，HTML 页面按该路径访问。',
+                attrs='data-type="nullable"') }}
+    {{ ui.field('权限码', 'permission_code', id='m-perm', maxlength=128,
+                placeholder='如 system:user:list', attrs='data-type="nullable"') }}
+    {{ ui.select_field('图标', 'icon', ICON_OPTIONS, id='m-icon', placeholder='无', attrs='data-type="nullable"') }}
+    {{ ui.field('排序', 'sort', type='number', id='m-sort', value=0, attrs='data-type="number"') }}
+    {{ ui.switch_field('是否可见', 'visible', '在导航中显示', checked=True, id='m-visible') }}
+    {{ ui.select_field('状态', 'status', [('active', '启用'), ('disabled', '禁用')], id='m-status') }}
+    {{ ui.field('组件标识', 'component_key', id='m-component', placeholder='仅历史兼容，可留空',
+                attrs='data-type="nullable"') }}
+    {{ ui.textarea_field('备注', 'remark', rows=2, id='m-remark', maxlength=255,
+                         span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+{% endblock %}

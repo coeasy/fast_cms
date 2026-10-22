@@ -1,0 +1,103 @@
+name: fastcms
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: fastcms:local
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      AUTO_MIGRATE: "true"
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      DB_URL: ${DB_URL:-sqlite+aiosqlite:////app/backend/data/fastcms.db}
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SCHEDULER_MODE: ${SCHEDULER_MODE:-embedded}
+      STORAGE_LOCAL_DIR: /app/backend/data/uploads
+      # 系统时区初值，实际以系统参数 system.timezone 为准；SCHEDULER_TIMEZONE 留空表示任务跟随系统时区
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-}
+    volumes:
+      - fastcms_data:/app/backend/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  mysql:
+    image: mysql:8.0
+    profiles: ["mysql", "full"]
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-fastcms_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-fastcms}
+      MYSQL_USER: ${MYSQL_USER:-fastcms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-fastcms}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis", "full"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: fastcms:local
+    profiles: ["scheduler", "full"]
+    restart: unless-stopped
+    command: ["python", "-m", "app.cli", "scheduler"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
+      DB_URL: ${DB_URL:-sqlite+aiosqlite:////app/backend/data/fastcms.db}
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SCHEDULER_MODE: standalone
+      # 独立调度进程同样在启动时从数据库读回系统时区，留空的 SCHEDULER_TIMEZONE 表示跟随它
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-}
+      # 迁移由 app 容器执行，调度容器并发执行 alembic 会在 SQLite/MySQL 上竞争
+      AUTO_MIGRATE: "false"
+    volumes:
+      - fastcms_data:/app/backend/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  fastcms_data:
+  mysql_data:
+  redis_data:

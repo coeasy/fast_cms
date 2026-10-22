@@ -1,0 +1,42 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{{ ui.page_head() }}
+
+<div class="grid-2">
+  {% call ui.card(title='基本资料', body=True) %}
+    <div class="row mb-16" style="gap:16px">
+      <span class="avatar lg" id="profile-avatar">-</span>
+      <div class="col" style="gap:6px">
+        <button class="btn btn-sm" id="btn-avatar">更换头像</button>
+        <span class="tiny muted">支持 JPG / PNG / WebP，大小不超过 2 MB</span>
+        <input type="file" id="avatar-input" accept="image/*" hidden>
+      </div>
+    </div>
+
+    <form id="profile-form" novalidate>
+      {{ ui.field('昵称', 'nickname', required=True, id='p-nickname', maxlength=64, attrs='data-label="昵称"') }}
+      {{ ui.field('邮箱', 'email', type='email', id='p-email', placeholder='name@example.com',
+                  attrs='data-type="nullable"') }}
+      {{ ui.field('手机号', 'phone', id='p-phone', placeholder='手机号', attrs='data-type="nullable"') }}
+      <button class="btn btn-primary" type="submit" id="profile-submit">保存资料</button>
+    </form>
+  {% endcall %}
+
+  <div class="col">
+    {% call ui.card(title='账号信息', body=True) %}
+      <div class="desc-grid" id="account-desc"></div>
+    {% endcall %}
+
+    {% call ui.card(title='登录设备', extra='<button class="btn btn-sm" id="btn-revoke-others">下线其他设备</button>') %}
+      {{ ui.data_table([
+        'IP',
+        '客户端',
+        ('最近活跃', '150px'),
+        ('操作', '90px')
+      ], tbody_id='session-rows', compact=True, empty='加载中...') }}
+    {% endcall %}
+  </div>
+</div>
+{% endblock %}

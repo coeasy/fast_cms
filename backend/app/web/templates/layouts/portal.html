@@ -1,0 +1,27 @@
+{# ==========================================================================
+   前台外壳（layouts/portal.html）
+   与后台完全独立：没有侧边栏、没有登录守卫，只加载 portal.css 与 shell/portal.js。
+   ========================================================================== #}
+{% extends "base.html" %}
+
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/portal.css">{% endblock %}
+
+{% block body %}
+<div class="portal">
+  <nav class="portal-nav">
+    <span class="brand-logo" id="portal-logo">{{ app_name[:1] }}</span>
+    <strong id="portal-title">{{ app_name }}</strong>
+    <span class="spacer"></span>
+    <a class="btn btn-text" href="{{ admin_base }}login">登录后台</a>
+    <a class="btn btn-primary" href="{{ admin_base }}dashboard">进入管理</a>
+  </nav>
+
+  {% block portal_content %}{% endblock %}
+
+  <footer class="portal-footer">
+    <span id="portal-version">{{ app_name }} v{{ app_version }}</span>
+    <span> · </span>
+    <a href="{{ admin_base }}login">管理后台</a>
+  </footer>
+</div>
+{% endblock %}

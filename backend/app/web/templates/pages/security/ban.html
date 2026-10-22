@@ -1,0 +1,25 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='用户名 / 昵称 / 封禁原因') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('用户名', '150px'),
+    ('昵称', '140px'),
+    ('封禁类型', '110px'),
+    ('封禁原因', ''),
+    ('解封时间', '170px'),
+    ('封禁时间', '170px'),
+    ('操作', '110px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+{% endblock %}

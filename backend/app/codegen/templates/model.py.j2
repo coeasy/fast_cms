@@ -1,0 +1,16 @@
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from decimal import Decimal
+
+from sqlalchemy import {% for item in sa_imports %}{{ item }}, {% endfor %}Column
+
+from app.db.base import Base
+
+
+class {{ class_name }}(Base):
+    __tablename__ = "{{ table }}"
+
+{% for column in columns %}
+    {{ column.name }} = Column({{ column.sa_type }}, primary_key={{ column.primary_key }}, nullable={% if column.primary_key %}False{% else %}{{ column.nullable }}{% endif %}{% if column.autoincrement %}, autoincrement=True{% endif %})
+{% endfor %}

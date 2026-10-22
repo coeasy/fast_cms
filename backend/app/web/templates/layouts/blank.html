@@ -1,0 +1,7 @@
+{# ==========================================================================
+   公共页面外壳（layouts/blank.html）
+   登录页与错误页：没有导航、没有登录守卫，只加载 public.css。
+   ========================================================================== #}
+{% extends "base.html" %}
+
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/public.css">{% endblock %}

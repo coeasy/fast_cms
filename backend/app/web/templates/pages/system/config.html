@@ -1,0 +1,43 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:config:create">新建参数</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='键名 / 名称') }}
+    {{ ui.filter_select('分组', 'group', [], all_label='全部分组') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('键名', '240px'),
+    ('名称', '180px'),
+    '值',
+    ('类型', '100px'),
+    ('分组', '120px'),
+    ('公开', '100px'),
+    ('内置', '100px'),
+    ('操作', '150px')
+  ]) }}
+{% endcall %}
+
+{% call ui.modal('config-modal', '新建参数', size='wide', form_id='config-form', submit_id='config-submit') %}
+  <div class="form-grid">
+    {{ ui.field('键名', 'key', required=True, id='c-key', maxlength=128, placeholder='如 system.title',
+                attrs='pattern="[a-z][a-z0-9_.]*" data-pattern-message="小写字母开头，仅含小写字母、数字、下划线与点" data-label="键名"') }}
+    {{ ui.field('名称', 'name', required=True, id='c-name', maxlength=128, attrs='data-label="名称"') }}
+    {{ ui.textarea_field('值', 'value', rows=3, id='c-value', span=2, placeholder='参数值',
+                         hint='字符串直接填写；JSON 类型请填写合法 JSON。', hint_id='c-value-help') }}
+    {{ ui.select_field('类型', 'type', [('string', 'string'), ('int', 'int'), ('bool', 'bool'), ('json', 'json')],
+                       id='c-type') }}
+    {{ ui.field('分组', 'group', id='c-group', maxlength=64, placeholder='basic') }}
+    {{ ui.switch_field('是否公开', 'is_public', '无需登录即可读取') }}
+    {{ ui.textarea_field('备注', 'remark', rows=2, id='c-remark', maxlength=255,
+                         span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+{% endblock %}

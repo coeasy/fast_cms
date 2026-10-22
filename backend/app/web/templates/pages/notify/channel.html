@@ -1,0 +1,52 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% set CHANNEL_TYPES = [
+  ('dingtalk', '钉钉'),
+  ('feishu', '飞书'),
+  ('wecom', '企业微信'),
+  ('webhook', '通用 Webhook')
+] %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="notify:channel:create">新建渠道</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='渠道名称') }}
+    {{ ui.filter_select('类型', 'channel_type', CHANNEL_TYPES) }}
+    {{ ui.filter_select('状态', 'status', [('enabled', '启用'), ('disabled', '禁用')]) }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('名称', '160px'),
+    ('类型', '110px'),
+    'Webhook',
+    ('订阅事件', '200px'),
+    ('密钥', '90px'),
+    ('状态', '100px'),
+    ('操作', '190px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('channel-modal', '新建渠道', size='wide', form_id='channel-form', submit_id='channel-submit') %}
+  <div class="form-grid">
+    {{ ui.field('名称', 'name', required=True, id='ch-name', maxlength=64, attrs='data-label="名称"') }}
+    {{ ui.select_field('类型', 'channel_type', CHANNEL_TYPES, id='ch-type') }}
+    {{ ui.field('Webhook 地址', 'webhook_url', id='ch-url', span=2, control_class='mono',
+                maxlength=1000, placeholder='https://...', attrs='data-type="nullable"',
+                label_html='Webhook 地址<span class="req" data-create-only>*</span>',
+                hint='仅支持 HTTPS（本地环境可用 HTTP），地址中的 access_token 按凭证对待，只写不读。',
+                hint_id='ch-url-help') }}
+    {{ ui.field('签名密钥', 'secret', id='ch-secret', span=2, control_class='mono',
+                maxlength=255, placeholder='留空表示不使用签名', attrs='data-type="nullable"') }}
+    {{ ui.multi_select_field('订阅事件', 'events', '选择事件', id='ch-events', span=2, star=True) }}
+    {{ ui.select_field('状态', 'status', [('enabled', '启用'), ('disabled', '禁用')], id='ch-status') }}
+    {{ ui.field('备注', 'remark', id='ch-remark', maxlength=255, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+{% endblock %}

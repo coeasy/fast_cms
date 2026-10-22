@@ -1,0 +1,15 @@
+{% extends "layouts/blank.html" %}
+
+{% block body %}
+<div class="error-page">
+  <div class="error-box">
+    <div class="error-code">{{ code or '404' }}</div>
+    <h1>{{ message or '页面不存在' }}</h1>
+    <p>{{ detail }}</p>
+    <div class="btn-row" style="justify-content:center">
+      <a class="btn btn-primary" href="{{ admin_base }}dashboard">返回工作台</a>
+      <a class="btn" href="{{ admin_base }}login">重新登录</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

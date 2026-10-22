@@ -1,0 +1,52 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="schedule:template:create">新建模板</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='名称 / 编码') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('名称', '190px'),
+    ('编码', '180px'),
+    ('类型', '110px'),
+    ('默认触发', '200px'),
+    ('超时', '100px'),
+    '描述',
+    ('操作', '150px')
+  ]) }}
+{% endcall %}
+
+{% call ui.modal('template-modal', '新建模板', size='xwide', form_id='template-form', submit_id='template-submit') %}
+  <div class="form-grid">
+    {{ ui.field('名称', 'name', required=True, id='t-name', maxlength=64, attrs='data-label="名称"') }}
+    {{ ui.field('编码', 'code', required=True, id='t-code', maxlength=128,
+                attrs='pattern="[a-z][a-z0-9_.-]*" data-pattern-message="小写字母开头，仅含小写字母、数字、下划线、点与中划线" data-label="编码"') }}
+    {{ ui.select_field('任务类型', 'job_type', [('registry', '注册表任务'), ('python', 'Python 脚本')], id='t-job-type') }}
+    {{ ui.field('超时（秒）', 'timeout_seconds', type='number', id='t-timeout', value=300,
+                attrs='min="5" max="3600" data-type="number"') }}
+    {{ ui.select_field('处理器代码', 'handler_code', [], id='t-handler', span=2,
+                       placeholder='请选择', field_attrs='data-registry-only') }}
+    {{ ui.textarea_field('脚本内容', 'script_code', rows=7, id='t-script', span=2,
+                         field_attrs='data-python-only', hidden=True, control_class='mono',
+                         attrs='spellcheck="false"') }}
+    {{ ui.field('描述', 'description', id='t-desc', maxlength=255, span=2, attrs='data-type="nullable"') }}
+    {{ ui.select_field('默认触发', 'trigger_type', [('cron', 'Cron 表达式'), ('interval', '固定间隔')], id='t-trigger') }}
+    {{ ui.field('时区', 'timezone', id='t-timezone', maxlength=64, control_class='mono',
+                placeholder='留空跟随系统时区') }}
+    {{ ui.field('Cron 表达式', 'cron_expr', id='t-cron', span=2, control_class='mono',
+                maxlength=128, placeholder='0 3 * * *', field_attrs='data-trigger="cron"') }}
+    {{ ui.field('间隔秒数', 'interval_seconds', type='number', id='t-interval', span=2,
+                field_attrs='data-trigger="interval"', hidden=True,
+                attrs='min="10" max="2592000" data-type="number"') }}
+    {{ ui.textarea_field('默认参数（JSON）', 'args_json', rows=4, id='t-args', span=2,
+                         control_class='mono', attrs='data-type="json" placeholder=\'{"days": 30}\'') }}
+  </div>
+{% endcall %}
+{% endblock %}

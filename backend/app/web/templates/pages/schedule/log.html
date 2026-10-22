@@ -1,0 +1,33 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-export" data-perm="schedule:log:export">导出 CSV</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='任务名称 / 编码') }}
+    {{ ui.filter_input('任务 ID', 'job_id', type='number', id='f-job', placeholder='全部任务', attrs='data-type="number"') }}
+    {{ ui.filter_select('状态', 'status', [
+      ('success', '成功'), ('failed', '失败'), ('running', '运行中'),
+      ('skipped', '跳过'), ('interrupted', '中断')
+    ]) }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('任务', '220px'),
+    ('类型', '110px'),
+    ('触发', '120px'),
+    ('状态', '100px'),
+    ('开始时间', '180px'),
+    ('耗时', '110px'),
+    ('操作', '90px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('detail-modal', '执行日志详情', size='xwide', body_id='detail-body', cancel_label='关闭') %}{% endcall %}
+{% endblock %}

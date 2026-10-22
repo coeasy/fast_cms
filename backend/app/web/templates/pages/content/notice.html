@@ -1,0 +1,38 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:notice:create">新建公告</button>
+  <button class="btn" id="btn-export" data-perm="system:notice:export">导出 CSV</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='标题') }}
+    {{ ui.filter_select('状态', 'status', [('draft', '草稿'), ('published', '已发布')]) }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    '标题',
+    ('状态', '110px'),
+    ('置顶', '90px'),
+    ('发布时间', '180px'),
+    ('更新时间', '180px'),
+    ('操作', '230px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('notice-modal', '新建公告', size='wide', form_id='notice-form', submit_id='notice-submit') %}
+  {{ ui.field('标题', 'title', required=True, maxlength=128, id='n-title', attrs='data-label="标题"') }}
+  {{ ui.textarea_field('正文', 'content', rows=10, id='n-content', maxlength=50000,
+                       placeholder='支持纯文本，换行会原样保留') }}
+  <div class="form-grid">
+    {{ ui.select_field('创建后状态', 'status', [('draft', '保存为草稿'), ('published', '立即发布')],
+                       id='n-status', attrs='data-create-only') }}
+    {{ ui.switch_field('置顶', 'is_top', '在公告列表顶部展示') }}
+  </div>
+{% endcall %}
+{% endblock %}

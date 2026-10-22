@@ -1,0 +1,34 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:dept:create">新建部门</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {{ ui.data_table([
+    ('部门名称', '320px'),
+    ('负责人', '140px'),
+    ('联系电话', '160px'),
+    ('排序', '80px'),
+    ('状态', '100px'),
+    '备注',
+    ('操作', '200px')
+  ]) }}
+{% endcall %}
+
+{% call ui.modal('dept-modal', '新建部门', form_id='dept-form', submit_id='dept-submit') %}
+  <div class="form-grid">
+    {{ ui.select_field('上级部门', 'parent_id', [], id='d-parent', placeholder='顶级', attrs='data-type="number"') }}
+    {{ ui.field('部门名称', 'name', required=True, id='d-name', maxlength=64, attrs='data-label="部门名称"') }}
+    {{ ui.field('负责人', 'leader', id='d-leader', maxlength=64, attrs='data-type="nullable"') }}
+    {{ ui.field('联系电话', 'phone', id='d-phone', maxlength=32, attrs='data-type="nullable"') }}
+    {{ ui.field('排序', 'sort', type='number', id='d-sort', value=0, attrs='data-type="number"') }}
+    {{ ui.select_field('状态', 'status', [('active', '启用'), ('disabled', '禁用')], id='d-status') }}
+    {{ ui.textarea_field('备注', 'remark', rows=3, id='d-remark', maxlength=500,
+                         span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+{% endblock %}

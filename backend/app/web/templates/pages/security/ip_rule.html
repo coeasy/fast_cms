@@ -1,0 +1,69 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="security:ip-rule:create">新建规则</button>
+  <button class="btn" id="btn-block-now" data-perm="security:ip-rule:create">一键封禁 IP</button>
+  <button class="btn" id="btn-lookup" data-perm="security:ip-rule:list">IP 溯源</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='IP / 网段 / 原因') }}
+    {{ ui.filter_select('类型', 'kind', [('block', '封禁'), ('allow', '放行')]) }}
+    {{ ui.filter_select('作用范围', 'scope', [('all', '全部'), ('api', '接口'), ('admin', '后台'), ('portal', '前台')]) }}
+    {{ ui.filter_select('状态', 'status', [('active', '生效中'), ('disabled', '已停用'), ('expired', '已过期')]) }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('IP / 网段', '170px'),
+    ('类型', '80px'),
+    ('范围', '90px'),
+    ('状态', '90px'),
+    ('原因', ''),
+    ('命中', '80px'),
+    ('到期时间', '170px'),
+    ('创建人', '110px'),
+    ('操作', '190px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('rule-modal', '新建 IP 规则', size='wide', form_id='rule-form', submit_id='rule-submit') %}
+  <div class="form-grid">
+    {{ ui.field('IP 或网段', 'target', required=True, id='r-target', placeholder='如 203.0.113.7 或 203.0.113.0/24',
+                hint='支持 IPv4 / IPv6 单地址与 CIDR 网段，留空的作用域不生效。',
+                attrs='data-label="IP 或网段"') }}
+    {{ ui.select_field('类型', 'kind', [('block', '封禁'), ('allow', '放行')], id='r-kind', required=True,
+                       hint='放行优先于封禁，可用于在封禁网段内给自己开一条通道。') }}
+    {{ ui.select_field('作用范围', 'scope', [('all', '全部'), ('api', '仅接口'), ('admin', '仅后台'), ('portal', '仅前台')],
+                       id='r-scope', required=True) }}
+    {{ ui.field('原因', 'reason', id='r-reason', maxlength=255, placeholder='为什么加这条规则', span=2,
+                attrs='data-type="nullable"') }}
+    {{ ui.field('到期时间', 'expires_at', type='datetime-local', id='r-expires',
+                hint='留空表示永久生效；到期后中间件自动忽略该规则。', span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+
+{% call ui.modal('block-modal', '一键封禁 IP', form_id='block-form', submit_label='封禁', submit_id='block-submit',
+                 submit_class='btn-danger') %}
+  <div class="form-grid">
+    {{ ui.field('IP 地址', 'ip', required=True, id='b-ip', placeholder='如 203.0.113.7', attrs='data-label="IP 地址"') }}
+    {{ ui.select_field('作用范围', 'scope', [('all', '全部'), ('api', '仅接口'), ('admin', '仅后台'), ('portal', '仅前台')],
+                       id='b-scope', required=True) }}
+    {{ ui.field('封禁时长（分钟）', 'minutes', type='number', value=0, id='b-minutes',
+                hint='0 表示永久封禁；最长 525600 分钟（一年）。', attrs='min="0" max="525600" data-type="number"') }}
+    {{ ui.field('原因', 'reason', id='b-reason', maxlength=255, span=2, placeholder='如：连续登录失败', attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+
+{% call ui.modal('lookup-modal', 'IP 溯源', body_id='lookup-body', cancel_label='关闭',
+                 submit_label='查询', submit_id='lookup-submit', submit_type='button') %}
+  <div class="form-grid" style="margin-bottom:14px">
+    {{ ui.field('要查询的 IP', 'ip', id='l-ip', placeholder='如 203.0.113.7', attrs='data-label="要查询的 IP"') }}
+  </div>
+  <div id="lookup-result" class="muted">输入 IP 后点击「查询」。</div>
+{% endcall %}
+{% endblock %}

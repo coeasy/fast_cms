@@ -1,0 +1,4 @@
+{# 首屏先套用上次缓存的主题，避免刷新时闪一下默认蓝。
+   用外部脚本而不是内联脚本：这样响应头的 CSP 可以禁用 unsafe-inline。
+   必须是普通（非 module）脚本，保证在页面绘制前同步执行。 #}
+<script src="{{ base }}static/js/theme-boot.js"></script>

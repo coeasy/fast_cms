@@ -1,0 +1,43 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-export" data-perm="monitor:login-log:export">导出 CSV</button>
+  <button class="btn" id="btn-cleanup" data-perm="monitor:login-log:delete">清理</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='用户名 / IP') }}
+    {{ ui.filter_select('结果', 'status', [('success', '成功'), ('failure', '失败')]) }}
+    {{ ui.filter_input('开始日期', 'start_date', type='date') }}
+    {{ ui.filter_input('结束日期', 'end_date', type='date') }}
+  {% endcall %}
+
+  {{ ui.batch_bar('login-log-batch-bar', [
+    {'act': 'delete', 'label': '批量删除', 'perm': 'monitor:login-log:batch', 'danger': true}
+  ]) }}
+
+  {{ ui.data_table([
+    ('用户名', '150px'),
+    ('结果', '90px'),
+    '原因',
+    ('IP', '150px'),
+    ('客户端', '180px'),
+    ('时间', '170px'),
+    ('操作', '90px')
+  ], selectable=true) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('detail-modal', '登录日志详情', size='wide', body_id='detail-body', cancel_label='关闭') %}{% endcall %}
+
+{% call ui.modal('cleanup-modal', '清理登录日志', form_id='cleanup-form', novalidate=False,
+                 submit_label='开始清理', submit_id='cleanup-submit', submit_class='btn-danger') %}
+  {{ ui.field('保留天数', 'before_days', type='number', value=90,
+              hint='删除该天数之前的登录日志，范围 7-3650 天。',
+              id='cleanup-days', attrs='min="7" max="3650"') }}
+{% endcall %}
+{% endblock %}

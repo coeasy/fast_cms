@@ -1,0 +1,55 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create-type" data-perm="system:dict:create">新建类型</button>
+  <button class="btn" id="btn-export" data-perm="system:dict:export">导出 CSV</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+<div class="split-panel">
+  {% call ui.card(title='字典类型', extra='<span class="tiny muted" id="type-count"></span>') %}
+    <ul class="list-plain" id="type-list"></ul>
+  {% endcall %}
+
+  {% call ui.card(title='字典项', title_id='item-title', extra='
+      <button class="btn btn-sm" id="btn-effective" disabled>查看生效值</button>
+      <button class="btn btn-sm btn-primary" id="btn-create-item" data-perm="system:dict:create" disabled>新建字典项</button>') %}
+    {{ ui.data_table([
+      ('标签', '180px'),
+      ('值', '160px'),
+      ('颜色', '120px'),
+      ('排序', '80px'),
+      ('状态', '100px'),
+      '备注',
+      ('操作', '160px')
+    ], tbody_id='item-rows', empty='请选择左侧字典类型') }}
+  {% endcall %}
+</div>
+
+{% call ui.modal('type-modal', '新建字典类型', form_id='type-form', submit_id='type-submit') %}
+  {{ ui.field('名称', 'name', required=True, id='t-name', maxlength=64, attrs='data-label="名称"') }}
+  {{ ui.field('编码', 'code', required=True, id='t-code', maxlength=64, placeholder='如 user_status',
+              attrs='pattern="[a-z][a-z0-9_.]*" data-pattern-message="小写字母开头，仅含小写字母、数字、下划线与点" data-label="编码"') }}
+  {{ ui.select_field('状态', 'status', [('active', '启用'), ('disabled', '禁用')], id='t-status') }}
+  {{ ui.textarea_field('备注', 'remark', rows=2, id='t-remark', maxlength=255, attrs='data-type="nullable"') }}
+{% endcall %}
+
+{% call ui.modal('item-modal', '新建字典项', form_id='item-form', submit_id='item-submit') %}
+  <div class="form-grid">
+    {{ ui.field('标签', 'label', required=True, id='i-label', maxlength=64, attrs='data-label="标签"') }}
+    {{ ui.field('值', 'value', required=True, id='i-value', maxlength=64, attrs='data-label="值"') }}
+    {{ ui.select_field('标签颜色', 'tag_color', [
+      ('blue', '蓝'), ('green', '绿'), ('red', '红'), ('orange', '橙'),
+      ('gold', '金'), ('purple', '紫'), ('cyan', '青'), ('gray', '灰')
+    ], id='i-color', placeholder='无', attrs='data-type="nullable"') }}
+    {{ ui.field('排序', 'sort', type='number', id='i-sort', value=0, attrs='data-type="number"') }}
+    {{ ui.select_field('状态', 'status', [('active', '启用'), ('disabled', '禁用')], id='i-status') }}
+    {{ ui.textarea_field('备注', 'remark', rows=2, id='i-remark', maxlength=255,
+                         span=2, attrs='data-type="nullable"') }}
+  </div>
+{% endcall %}
+
+{% call ui.modal('effective-modal', '消费方视角的字典', body_id='effective-body', cancel_label='关闭') %}{% endcall %}
+{% endblock %}

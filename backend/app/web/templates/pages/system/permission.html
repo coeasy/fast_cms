@@ -1,0 +1,20 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <label class="checkbox"><input type="checkbox" id="show-deprecated"> 显示已废弃</label>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  <div class="card-body" style="padding:14px 20px">
+    <div class="row wrap">
+      <input class="input" id="perm-search" placeholder="搜索权限码 / 名称" style="max-width:280px">
+      <span class="muted small" id="perm-summary">共 0 项权限</span>
+    </div>
+  </div>
+{% endcall %}
+
+<div id="perm-modules"></div>
+{% endblock %}

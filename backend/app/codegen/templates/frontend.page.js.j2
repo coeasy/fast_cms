@@ -1,0 +1,130 @@
+/* {{ title }} —— 由代码生成器产出，放在 backend/app/web/static/js/pages/{{ module }}/{{ resource }}.js
+   对应的页面模板见同目录 page.html，路由与菜单需要另行注册。 */
+
+import {
+  $, api, can, closeModal, confirmDialog, esc, fillForm, formatDate, formatTime,
+  openModal, resetForm, serializeForm, setLoading, toast, validateForm,
+} from '../../core.js';
+import { DataTable, actionButtons } from '../../ui.js';
+
+// 路径相对于 API 前缀（请求层自动补回），改 API_PREFIX 不需要重新生成
+const API = '/{{ module }}/{{ resource }}';
+
+let table;
+let editing = null;
+
+export async function init() {
+  table = new DataTable({
+    table: $('table.data'),
+    pager: $('.pager'),
+    fetch: (params) => api.get(API, params),
+    columns: [
+{% for column in columns %}
+{% if column.py_type == 'bool' %}
+      { render: (row) => (row.{{ column.name }} ? '<span class="tag green">是</span>' : '<span class="tag gray">否</span>') },
+{% elif column.py_type == 'datetime' %}
+      { render: (row) => esc(formatTime(row.{{ column.name }})) },
+{% elif column.py_type == 'date' %}
+      { render: (row) => esc(formatDate(row.{{ column.name }})) },
+{% else %}
+      { key: '{{ column.name }}' },
+{% endif %}
+{% endfor %}
+      { className: 'actions', render: (row) => rowActions(row) },
+    ],
+  });
+
+  await table.load(1);
+  bind();
+}
+
+function rowActions(row) {
+  return actionButtons([
+    can('{{ permission_prefix }}:update') && { act: 'edit', label: '编辑' },
+    can('{{ permission_prefix }}:delete') && { act: 'delete', label: '删除', danger: true },
+  ]);
+}
+
+function bind() {
+  $('#filters').addEventListener('submit', (event) => {
+    event.preventDefault();
+    table.search(serializeForm(event.currentTarget));
+  });
+  $('#filters').addEventListener('reset', () => setTimeout(() => table.search({}), 0));
+  $('#btn-refresh')?.addEventListener('click', () => table.reload());
+  $('#btn-create')?.addEventListener('click', openCreate);
+
+  $('table.data').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-act]');
+    if (!button) return;
+    const row = table.find(Number(button.closest('tr')?.dataset.id));
+    if (!row) return;
+    if (button.dataset.act === 'edit') openEdit(row);
+    else if (button.dataset.act === 'delete') remove(row);
+  });
+
+  $('#{{ resource }}-form').addEventListener('submit', submit);
+}
+
+function openCreate() {
+  editing = null;
+  const form = $('#{{ resource }}-form');
+  resetForm(form);
+  $('#{{ resource }}-modal-title').textContent = '新建{{ title }}';
+  openModal('{{ resource }}-modal');
+}
+
+function openEdit(row) {
+  editing = row;
+  const form = $('#{{ resource }}-form');
+  resetForm(form);
+  $('#{{ resource }}-modal-title').textContent = '编辑{{ title }} #' + row.{{ pk.name }};
+  fillForm(form, row);
+  openModal('{{ resource }}-modal');
+}
+
+async function submit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!validateForm(form)) return;
+  const values = serializeForm(form);
+  const payload = {
+{% for column in writable_columns %}
+    {{ column.name }}: values.{{ column.name }},
+{% endfor %}
+  };
+  const button = $('#{{ resource }}-submit');
+  setLoading(button, true);
+  try {
+    if (editing) {
+      await api.put(`${API}/${editing.{{ pk.name }}}`, payload);
+      toast('已保存', 'success');
+    } else {
+      await api.post(API, payload);
+      toast('已创建', 'success');
+    }
+    closeModal('{{ resource }}-modal');
+    table.reload();
+  } catch {
+    /* 请求层已提示 */
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function remove(row) {
+  const ok = await confirmDialog({
+    title: '删除记录',
+    message: '确认删除 #' + row.{{ pk.name }} + '？',
+    okText: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api.del(`${API}/${row.{{ pk.name }}}`);
+    toast('已删除', 'success');
+    table.reload();
+  } catch {
+    /* 请求层已提示 */
+  }
+}

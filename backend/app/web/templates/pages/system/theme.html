@@ -1,0 +1,85 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% set COLOR_ATTRS = 'style="padding:2px;height:36px" data-preview' %}
+{% set RESET_LINK = '<button type="button" class="btn-link" data-clear-color="%s" style="align-self:flex-start">恢复默认</button>' %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-create" data-perm="system:theme:create">新建主题</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  <div class="card-body" style="padding:14px 20px">
+    <div class="row wrap">
+      <span class="muted small">主题由 CSS 变量驱动，保存后对全站生效；个人可在右上角临时切换到任一已启用主题。</span>
+    </div>
+  </div>
+{% endcall %}
+
+<div class="stat-grid mt-16" id="theme-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
+
+{% call ui.modal('theme-modal', '新建主题', size='xwide', form_id='theme-form', submit_id='theme-submit') %}
+  <div class="form-grid">
+    {{ ui.field('名称', 'name', required=True, id='th-name', maxlength=64, attrs='data-label="名称"') }}
+    {{ ui.field('标识', 'code', required=True, id='th-code', maxlength=64, placeholder='如 ocean-blue',
+                attrs='pattern="[a-z][a-z0-9-]*" data-pattern-message="小写字母开头，仅含小写字母、数字与中划线" data-label="标识"') }}
+    {{ ui.field('描述', 'description', id='th-desc', maxlength=255, span=2, attrs='data-type="nullable"') }}
+  </div>
+
+  <div class="divider"></div>
+  <div class="strong mb-16">配色</div>
+  <div class="form-grid">
+    {{ ui.field('主色', 'colorPrimary', type='color', id='th-primary', attrs=COLOR_ATTRS) }}
+    {{ ui.field('成功色', 'colorSuccess', type='color', id='th-success', attrs=COLOR_ATTRS) }}
+    {{ ui.field('警告色', 'colorWarning', type='color', id='th-warning', attrs=COLOR_ATTRS) }}
+    {{ ui.field('错误色', 'colorError', type='color', id='th-error', attrs=COLOR_ATTRS) }}
+    {{ ui.field('页面底色', 'colorBgLayout', type='color', id='th-bg-layout', attrs=COLOR_ATTRS,
+                below=RESET_LINK % 'colorBgLayout') }}
+    {{ ui.field('卡片底色', 'colorBgContainer', type='color', id='th-bg-container', attrs=COLOR_ATTRS,
+                below=RESET_LINK % 'colorBgContainer') }}
+    {{ ui.field('侧栏底色', 'colorBgSider', type='color', id='th-bg-sider', attrs=COLOR_ATTRS,
+                below=RESET_LINK % 'colorBgSider') }}
+    {{ ui.field('顶栏底色', 'colorBgHeader', type='color', id='th-bg-header', attrs=COLOR_ATTRS,
+                below=RESET_LINK % 'colorBgHeader') }}
+  </div>
+
+  <div class="divider"></div>
+  <div class="strong mb-16">布局与密度</div>
+  <div class="form-grid">
+    {{ ui.select_field('导航布局', 'layout', [('side', '侧边导航'), ('mix', '混合'), ('top', '顶部导航')],
+                       id='th-layout', attrs='data-preview') }}
+    {{ ui.select_field('导航主题', 'navTheme', [('light', '浅色'), ('realDark', '深色')],
+                       id='th-nav-theme', attrs='data-preview') }}
+    {{ ui.field('圆角（px）', 'borderRadius', type='number', id='th-radius',
+                attrs='min="0" max="24" data-type="number" data-preview') }}
+    {{ ui.field('字号（px）', 'fontSize', type='number', id='th-font',
+                attrs='min="12" max="18" data-type="number" data-preview') }}
+    {{ ui.field('控件高度（px）', 'controlHeight', type='number', id='th-control',
+                attrs='min="24" max="48" data-type="number" data-preview') }}
+    {{ ui.field('侧栏宽度（px）', 'siderWidth', type='number', id='th-sider',
+                attrs='min="120" max="360" data-type="number" data-preview') }}
+    {{ ui.field('内容边距（px）', 'contentPadding', type='number', id='th-padding',
+                attrs='min="0" max="64" data-type="number" data-preview') }}
+    {{ ui.select_field('控件尺寸', 'componentSize', [('small', '紧凑'), ('middle', '默认'), ('large', '宽松')],
+                       id='th-size') }}
+    {{ ui.field('水印文字', 'watermark', id='th-watermark', maxlength=32, placeholder='留空不显示',
+                attrs='data-preview') }}
+  </div>
+
+  <div class="divider"></div>
+  <div class="strong mb-16">开关</div>
+  <div class="form-grid">
+    {{ ui.bare_switch('darkAlgorithm', '深色模式', attrs='data-preview') }}
+    {{ ui.bare_switch('compactAlgorithm', '紧凑算法', attrs='data-preview') }}
+    {{ ui.bare_switch('tableCompact', '紧凑表格', attrs='data-preview') }}
+    {{ ui.bare_switch('showBreadcrumb', '显示面包屑', attrs='data-preview') }}
+    {{ ui.bare_switch('fixedHeader', '固定顶栏', attrs='data-preview') }}
+    {{ ui.bare_switch('colorWeak', '色弱模式', attrs='data-preview') }}
+  </div>
+  <div class="login-notice" style="background:var(--primary-weak)">
+    <span>编辑时右侧页面即为实时预览；取消或关闭会还原当前生效主题。</span>
+  </div>
+{% endcall %}
+{% endblock %}

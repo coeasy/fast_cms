@@ -1,0 +1,26 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn btn-primary" id="btn-upload" data-perm="tool:file:upload">上传文件</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+  <input type="file" id="file-input" hidden>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='文件名') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    '文件名',
+    ('类型', '160px'),
+    ('大小', '110px'),
+    ('上传者', '140px'),
+    ('上传时间', '170px'),
+    ('操作', '140px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+{% endblock %}

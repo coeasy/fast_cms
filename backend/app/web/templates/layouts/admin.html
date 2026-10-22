@@ -1,0 +1,39 @@
+{# ==========================================================================
+   后台外壳（layouts/admin.html）
+   侧边导航 + 顶栏 + 内容区。页面模板只需填 {% block content %}，
+   导航、面包屑、主题菜单、通知铃铛全部由 shell/admin.js 在运行时渲染。
+   ========================================================================== #}
+{% extends "base.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/admin.css">{% endblock %}
+
+{% block body %}
+<div class="app">
+  <aside class="sider">
+    <div class="brand" id="brand"></div>
+    <nav class="nav" id="nav" aria-label="主导航"></nav>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <button class="icon-btn nav-toggle" id="nav-toggle" aria-label="展开导航">{{ ui.icon('menu', 18) }}</button>
+      <div class="brand" id="brand-top" style="height:auto;padding:0"></div>
+      <div class="header-left">
+        <div class="crumbs" id="crumbs"></div>
+        <nav class="topnav" id="topnav" aria-label="顶部导航"></nav>
+      </div>
+      <div class="header-right" id="header-actions"></div>
+    </header>
+
+    <main class="content">
+      <div class="content-inner">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+
+{% include "partials/boot-mask.html" %}
+{% include "partials/notice-modal.html" %}
+{% endblock %}

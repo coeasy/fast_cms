@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import AppError
+from app.core.pagination import PageParams, paginate
+
+from .model import {{ class_name }}
+from .schemas import {{ class_name }}Create, {{ class_name }}Update
+
+
+async def list_items(db: AsyncSession, params: PageParams) -> tuple[list[{{ class_name }}], int]:
+    statement = select({{ class_name }}).order_by({{ class_name }}.{{ pk.name }}.desc())
+    return await paginate(db, statement, params)
+
+
+async def get_item(db: AsyncSession, item_id: {{ pk.py_type }}) -> {{ class_name }}:
+    item = await db.get({{ class_name }}, item_id)
+    if item is None:
+        raise AppError("{{ permission_prefix | replace(':', '_') | upper }}_NOT_FOUND", "记录不存在", 404)
+    return item
+
+
+async def create_item(db: AsyncSession, data: {{ class_name }}Create) -> {{ class_name }}:
+    item = {{ class_name }}(**data.model_dump(exclude_unset=True))
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def update_item(db: AsyncSession, item_id: {{ pk.py_type }}, data: {{ class_name }}Update) -> {{ class_name }}:
+    item = await get_item(db, item_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def delete_item(db: AsyncSession, item_id: {{ pk.py_type }}) -> None:
+    item = await get_item(db, item_id)
+    await db.delete(item)
+    await db.commit()

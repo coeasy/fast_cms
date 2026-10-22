@@ -1,0 +1,38 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-self">查询我的 IP</button>
+  <button class="btn" id="btn-refresh">重置</button>
+{% endcall %}
+
+{% call ui.card(title='IP 查询', body=True) %}
+  <form class="filters" id="ip-form">
+    <div class="field" style="flex:1 1 320px">
+      <label for="f-ip">IP 地址</label>
+      <input class="input mono" id="f-ip" name="ip" type="text" placeholder="如 113.118.113.77 或 240e:3b7:3272:d8d0:db09:c067:8d59:539e">
+    </div>
+    <div class="filter-actions">
+      <button class="btn btn-primary" type="submit" id="btn-query">查询</button>
+    </div>
+  </form>
+  <div class="help" style="margin-top:-6px">支持 IPv4 / IPv6 单地址与 CIDR 网段；归属地来自随包分发的离线库，不访问外网。</div>
+{% endcall %}
+
+{% call ui.card(title='查询结果') %}
+  <div id="locate-result">
+    <div class="table-empty">输入 IP 后点击「查询」，或点右上角「查询我的 IP」看当前出口地址。</div>
+  </div>
+{% endcall %}
+
+{% call ui.card(title='最近查询', body=False) %}
+  <div id="history-list" class="history-list"></div>
+{% endcall %}
+
+{% call ui.card(title='数据库状态') %}
+  <div id="library-state" class="desc-grid">
+    <div class="desc-item"><div class="k">加载中…</div><div class="v">-</div></div>
+  </div>
+{% endcall %}
+{% endblock %}

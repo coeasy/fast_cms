@@ -1,0 +1,45 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-cleanup" data-perm="notify:record:delete">清理</button>
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('关键词', 'keyword', placeholder='标题 / 去重键') }}
+    {{ ui.filter_select('事件', 'event', [
+      ('job.failed', '任务失败'), ('job.interrupted', '任务中断'),
+      ('notice.published', '公告发布'), ('test', '测试')
+    ]) }}
+    {{ ui.filter_select('状态', 'status', [
+      ('pending', '待发送'), ('sending', '发送中'), ('success', '成功'),
+      ('failed', '失败'), ('skipped', '跳过')
+    ]) }}
+    {{ ui.filter_input('渠道 ID', 'channel_id', type='number', placeholder='全部渠道',
+                       attrs='data-type="number"') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('渠道', '160px'),
+    ('事件', '130px'),
+    '标题',
+    ('状态', '100px'),
+    ('尝试', '80px'),
+    ('HTTP', '90px'),
+    ('发送时间', '170px'),
+    ('操作', '130px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+
+{% call ui.modal('detail-modal', '发送记录详情', size='wide', body_id='detail-body', cancel_label='关闭') %}{% endcall %}
+
+{% call ui.modal('cleanup-modal', '清理发送记录', form_id='cleanup-form', novalidate=False,
+                 submit_label='开始清理', submit_id='cleanup-submit', submit_class='btn-danger') %}
+  {{ ui.field('保留天数', 'before_days', type='number', id='cleanup-days', value=30,
+              attrs='min="1" max="3650"', hint='删除该天数之前的发送记录。') }}
+{% endcall %}
+{% endblock %}

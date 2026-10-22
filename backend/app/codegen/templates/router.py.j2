@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.authz import AuthContext, get_current_user
+from app.core.errors import success
+from app.core.pagination import PageParams, page_data
+from app.core.routing import protected_router
+from app.db.session import get_db
+
+from . import service
+from .schemas import {{ class_name }}Create, {{ class_name }}Out, {{ class_name }}Update
+
+router = protected_router(prefix="/{{ module }}", tags=["{{ title }}"])
+
+
+@router.get("/{{ resource }}", summary="{{ title }}列表", permission="{{ permission_prefix }}:list")
+async def list_{{ resource }}(
+    params: PageParams = Depends(),
+    ctx: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await service.list_items(db, params)
+    data = page_data([{{ class_name }}Out.model_validate(item).model_dump(mode="json") for item in items], total, params)
+    return success(data)
+
+
+@router.post("/{{ resource }}", summary="创建{{ title }}", permission="{{ permission_prefix }}:create")
+async def create_{{ resource }}(
+    data: {{ class_name }}Create,
+    ctx: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await service.create_item(db, data)
+    return success({{ class_name }}Out.model_validate(item).model_dump(mode="json"), "创建成功")
+
+
+@router.get("/{{ resource }}/{{ '{' }}{{ resource }}_id{{ '}' }}", summary="{{ title }}详情", permission="{{ permission_prefix }}:list")
+async def get_{{ resource }}(
+    {{ resource }}_id: {{ pk.py_type }},
+    ctx: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await service.get_item(db, {{ resource }}_id)
+    return success({{ class_name }}Out.model_validate(item).model_dump(mode="json"))
+
+
+@router.put("/{{ resource }}/{{ '{' }}{{ resource }}_id{{ '}' }}", summary="更新{{ title }}", permission="{{ permission_prefix }}:update")
+async def update_{{ resource }}(
+    {{ resource }}_id: {{ pk.py_type }},
+    data: {{ class_name }}Update,
+    ctx: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await service.update_item(db, {{ resource }}_id, data)
+    return success({{ class_name }}Out.model_validate(item).model_dump(mode="json"), "更新成功")
+
+
+@router.delete("/{{ resource }}/{{ '{' }}{{ resource }}_id{{ '}' }}", summary="删除{{ title }}", permission="{{ permission_prefix }}:delete")
+async def delete_{{ resource }}(
+    {{ resource }}_id: {{ pk.py_type }},
+    ctx: AuthContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await service.delete_item(db, {{ resource }}_id)
+    return success(None, "删除成功")

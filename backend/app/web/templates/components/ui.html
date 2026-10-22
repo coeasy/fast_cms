@@ -1,0 +1,336 @@
+{# ==========================================================================
+   通用组件宏（前台 / 后台共用）
+   用法：{% import "components/ui.html" as ui with context %}
+   约定：宏只产出结构，不绑定行为；所有 id 与 class 都由调用方传入，
+        因此页面脚本仍然按原有的 id 选择器工作。
+   ========================================================================== #}
+
+{% set TEMPLATE_ICONS = {
+  'refresh': '<path d="M20 11a8 8 0 1 0-2.3 6"/><path d="M20 4v7h-7"/>',
+  'users': '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>',
+  'check': '<path d="M4 12.5l5 5L20 6.5"/>',
+  'online': '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c0-3.4 2.9-5.2 6.5-5.2s6.5 1.8 6.5 5.2"/><path d="M16 5.2a3.4 3.4 0 0 1 0 6.4M18 20c0-2.2-.8-3.8-2.2-4.7"/>',
+  'layers': '<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7v.1M7 17v.1"/>',
+  'doc': '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/>',
+  'clock': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  'alert': '<path d="M12 3l9.5 17H2.5L12 3z"/><path d="M12 9v5M12 17.2v.1"/>',
+  'database': '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  'shield': '<path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/>',
+  'info': '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.6v.1"/>',
+  'menu': '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  'plus': '<path d="M12 5v14M5 12h14"/>',
+  'search': '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>'
+} %}
+
+{# ------------------------------- 图标 ------------------------------- #}
+
+{% macro icon(name, size=16) -%}
+<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor"
+     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ TEMPLATE_ICONS.get(name, '') | safe }}</svg>
+{%- endmacro %}
+
+{# ------------------------------- 页头 ------------------------------- #}
+
+{# 右侧操作区用 {% call %} 传入：
+   {% call ui.page_head() %}<button class="btn" id="btn-refresh">刷新</button>{% endcall %} #}
+{% macro page_head(title=None, subtitle=None, title_id=None, sub_id=None) -%}
+<div class="page-head">
+  <div>
+    <h1 class="page-title"{% if title_id %} id="{{ title_id }}"{% endif %}>{{ page_title if title is none else title }}</h1>
+    {% set sub = page_subtitle if subtitle is none else subtitle %}
+    {% if sub %}<div class="page-sub"{% if sub_id %} id="{{ sub_id }}"{% endif %}>{{ sub }}</div>{% endif %}
+  </div>
+  <div class="page-extra">{{ caller() if caller is defined else '' }}</div>
+</div>
+{%- endmacro %}
+
+{# ------------------------------- 卡片 ------------------------------- #}
+
+{# body=True 时内容包一层 .card-body（带内边距）；默认直接塞进卡片，
+   适合「筛选 + 表格 + 分页」这种自带内边距的列表布局。 #}
+{% macro card(title=None, extra=None, body=False, tight=False, title_id=None) -%}
+<div class="card">
+  {% if title is not none or extra is not none %}
+  <div class="card-head">
+    <span class="card-title"{% if title_id %} id="{{ title_id }}"{% endif %}>{{ title or '' }}</span>
+    {% if extra is not none %}<div class="card-extra">{{ extra | safe }}</div>{% endif %}
+  </div>
+  {% endif %}
+  {% if body %}<div class="card-body{% if tight %} tight{% endif %}">{{ caller() if caller is defined else '' }}</div>
+  {% else %}{{ caller() if caller is defined else '' }}{% endif %}
+</div>
+{%- endmacro %}
+
+{# --------------------------- 列表：筛选 + 表格 + 分页 --------------------------- #}
+
+{% macro filter_form(id='filters') -%}
+<form class="filters" id="{{ id }}">
+  {{ caller() if caller is defined else '' }}
+  <div class="filter-actions">
+    <button class="btn btn-primary" type="submit">查询</button>
+    <button class="btn" type="reset">重置</button>
+  </div>
+</form>
+{%- endmacro %}
+
+{# 筛选区单个输入项：id 默认 f-<name>，与页面脚本的 #f-keyword 等选择器保持一致 #}
+{% macro filter_input(label, name, placeholder=None, type='text', id=None, attrs=None) -%}
+<div class="field">
+  <label for="{{ id or 'f-' ~ name }}">{{ label }}</label>
+  <input class="input" id="{{ id or 'f-' ~ name }}" name="{{ name }}" type="{{ type }}"
+    {%- if placeholder %} placeholder="{{ placeholder }}"{% endif %}
+    {%- if attrs %} {{ attrs | safe }}{% endif %}>
+</div>
+{%- endmacro %}
+
+{# options 用 [(value, 文本), ...]；all_label 非空时在最前面补一个空值选项 #}
+{% macro filter_select(label, name, options, id=None, all_label='全部', attrs=None) -%}
+<div class="field">
+  <label for="{{ id or 'f-' ~ name }}">{{ label }}</label>
+  <div class="select-wrap">
+    <select class="select" id="{{ id or 'f-' ~ name }}" name="{{ name }}"{% if attrs %} {{ attrs | safe }}{% endif %}>
+      {% if all_label %}<option value="">{{ all_label }}</option>{% endif %}
+      {% for value, text in options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}
+    </select>
+  </div>
+</div>
+{%- endmacro %}
+
+{# columns 用 [('标题', '150px'), '操作', ...]：元组第二位是列宽，字符串表示自适应
+   selectable=True 时在最前面插入一列复选框，配合 ui.js 的 DataTable.selectable；
+   empty 非空时在 tbody 里先放一行占位，供「选中左侧条目才加载」这类页面使用 #}
+{% macro data_table(columns, tbody_id=None, compact=False, empty=None, selectable=False) -%}
+<div class="table-wrap">
+  <table class="data{% if compact %} compact{% endif %}">
+    <thead>
+      <tr>
+        {%- if selectable %}
+        <th class="checkbox-cell"><input type="checkbox" id="check-all" aria-label="全选当前页"></th>
+        {%- endif %}
+        {% for col in columns -%}
+          {%- if col is string -%}
+        <th>{{ col }}</th>
+          {%- else -%}
+        <th{% if col | length > 1 and col[1] %} style="width:{{ col[1] }}"{% endif %}>{{ col[0] }}</th>
+          {%- endif -%}
+        {%- endfor %}
+      </tr>
+    </thead>
+    <tbody{% if tbody_id %} id="{{ tbody_id }}"{% endif %}>
+      {%- if empty %}
+      <tr><td colspan="{{ (columns | length) + (1 if selectable else 0) }}"><div class="table-empty">{{ empty }}</div></td></tr>
+      {%- endif %}
+    </tbody>
+  </table>
+</div>
+{%- endmacro %}
+
+{# 批量操作工具栏：默认隐藏，勾选行后由 bindBatchBar 显示。
+   actions 用 [{'act': 'disable', 'label': '批量禁用', 'perm': 'system:user:status'}, ...] #}
+{% macro batch_bar(id='batch-bar', actions=None) -%}
+<div class="batch-bar" id="{{ id }}" hidden>
+  <span class="batch-count" data-batch-count>已选 0 项</span>
+  <div class="batch-actions">
+    {%- for action in (actions or []) %}
+    <button class="btn {{ 'btn-danger' if action.danger else '' }}" data-batch-act="{{ action.act }}"
+            {%- if action.perm %} data-perm="{{ action.perm }}"{% endif %}>{{ action.label }}</button>
+    {%- endfor %}
+    <button class="btn btn-link" data-batch-act="clear">取消选择</button>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro pager() -%}
+<div class="pager"></div>
+{%- endmacro %}
+
+{# 空表占位行：JS 侧 table-empty 由 emptyRow() 生成，这里只给首屏占位用 #}
+{% macro empty_row(text, colspan=1) -%}
+<tr><td colspan="{{ colspan }}"><div class="table-empty">{{ text }}</div></td></tr>
+{%- endmacro %}
+
+{# ------------------------------- 表单控件 ------------------------------- #}
+
+{# 所有字段共用同一个外壳：span 控制栅格宽度，hidden 首屏隐藏，
+   field_attrs 把 data-* 挂到 .field 上（页面脚本按 data-trigger 之类做显隐）。 #}
+{% macro field_open(span=None, hidden=False, field_attrs=None) -%}
+<div class="field{% if span %} span-{{ span }}{% endif %}{% if hidden %} hidden{% endif %}"{% if field_attrs %} {{ field_attrs | safe }}{% endif %}>
+{%- endmacro %}
+
+{% macro field(label, name, type='text', required=False, hint=None, placeholder=None,
+               value=None, id=None, span=None, attrs=None, maxlength=None, autocomplete=None,
+               hint_id=None, field_attrs=None, hidden=False, control_class=None, star=False,
+               label_html=None, below=None) -%}
+{{ field_open(span, hidden, field_attrs) }}
+  <label for="{{ id or name }}">{% if label_html %}{{ label_html | safe }}{% else %}{{ label }}{% if required or star %}<span class="req">*</span>{% endif %}{% endif %}</label>
+  <input class="input{% if control_class %} {{ control_class }}{% endif %}" id="{{ id or name }}" name="{{ name }}" type="{{ type }}"
+    {%- if required %} required{% endif %}
+    {%- if maxlength %} maxlength="{{ maxlength }}"{% endif %}
+    {%- if placeholder %} placeholder="{{ placeholder }}"{% endif %}
+    {%- if value is not none %} value="{{ value }}"{% endif %}
+    {%- if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}
+    {%- if attrs %} {{ attrs | safe }}{% endif %}>
+  {% if below %}{{ below | safe }}{% endif %}
+  {% if hint %}<div class="help"{% if hint_id %} id="{{ hint_id }}"{% endif %}>{{ hint }}</div>{% endif %}
+  <div class="err"></div>
+</div>
+{%- endmacro %}
+
+{% macro select_field(label, name, options, id=None, required=False, placeholder=None,
+                      span=None, attrs=None, hint=None, field_attrs=None, hidden=False,
+                      hint_id=None, star=False, label_html=None) -%}
+{{ field_open(span, hidden, field_attrs) }}
+  <label for="{{ id or name }}">{% if label_html %}{{ label_html | safe }}{% else %}{{ label }}{% if required or star %}<span class="req">*</span>{% endif %}{% endif %}</label>
+  <div class="select-wrap">
+    <select class="select" id="{{ id or name }}" name="{{ name }}"
+      {%- if required %} required{% endif %}{% if attrs %} {{ attrs | safe }}{% endif %}>
+      {% if placeholder is not none %}<option value="">{{ placeholder }}</option>{% endif %}
+      {% for value, text in options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}
+    </select>
+  </div>
+  {% if hint %}<div class="help"{% if hint_id %} id="{{ hint_id }}"{% endif %}>{{ hint }}</div>{% endif %}
+  <div class="err"></div>
+</div>
+{%- endmacro %}
+
+{% macro textarea_field(label, name, rows=3, id=None, maxlength=None, placeholder=None,
+                        span=None, attrs=None, hint=None, hint_id=None, field_attrs=None,
+                        hidden=False, control_class=None, star=False, below=None,
+                        label_html=None) -%}
+{{ field_open(span, hidden, field_attrs) }}
+  <label for="{{ id or name }}">{% if label_html %}{{ label_html | safe }}{% else %}{{ label }}{% if star %}<span class="req">*</span>{% endif %}{% endif %}</label>
+  <textarea class="textarea{% if control_class %} {{ control_class }}{% endif %}" id="{{ id or name }}" name="{{ name }}" rows="{{ rows }}"
+    {%- if maxlength %} maxlength="{{ maxlength }}"{% endif %}
+    {%- if placeholder %} placeholder="{{ placeholder }}"{% endif %}
+    {%- if attrs %} {{ attrs | safe }}{% endif %}></textarea>
+  {% if below %}{{ below | safe }}{% endif %}
+  {% if hint %}<div class="help"{% if hint_id %} id="{{ hint_id }}"{% endif %}>{{ hint }}</div>{% endif %}
+  <div class="err"></div>
+</div>
+{%- endmacro %}
+
+{% macro switch_field(label, name, text, checked=False, id=None, span=None, hint=None,
+                      text_id=None, field_attrs=None, hidden=False) -%}
+{{ field_open(span, hidden, field_attrs) }}
+  <label{% if id %} for="{{ id }}"{% endif %}>{{ label }}</label>
+  <label class="switch">
+    <input type="checkbox" name="{{ name }}"{% if id %} id="{{ id }}"{% endif %}{% if checked %} checked{% endif %}>
+    <span class="track"></span>
+    <span class="label"{% if text_id %} id="{{ text_id }}"{% endif %}>{{ text }}</span>
+  </label>
+  {% if hint %}<div class="help">{{ hint }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{# 无外层标签的开关：只有一行 switch，用于成组的布尔开关 #}
+{% macro bare_switch(name, text, checked=False, attrs=None) -%}
+<div class="field">
+  <label class="switch">
+    <input type="checkbox" name="{{ name }}"{% if checked %} checked{% endif %}{% if attrs %} {{ attrs | safe }}{% endif %}>
+    <span class="track"></span><span class="label">{{ text }}</span>
+  </label>
+</div>
+{%- endmacro %}
+
+{# 原生 multiple select 的界面替身：面板与标签由 core.js 的 syncMultiSelects 渲染 #}
+{% macro multi_select_field(label, name, placeholder, id=None, hint=None, span=None,
+                            hidden=False, field_attrs=None, star=False) -%}
+{{ field_open(span, hidden, field_attrs) }}
+  <label>{{ label }}{% if star %}<span class="req">*</span>{% endif %}</label>
+  <div class="multi-select" data-placeholder="{{ placeholder }}"{% if id %} id="{{ id }}"{% endif %}>
+    <div class="ms-box"><span class="placeholder">{{ placeholder }}</span></div>
+    <div class="ms-panel"></div>
+    <select name="{{ name }}" multiple hidden></select>
+  </div>
+  {% if hint %}<div class="help">{{ hint }}</div>{% endif %}
+  <div class="err"></div>
+</div>
+{%- endmacro %}
+
+{# ------------------------------- 弹层 ------------------------------- #}
+
+{# 弹层主体由 {% call %} 提供；submit_label 为空时只渲染一个关闭按钮。
+   form_id 非空时整体包在 <form> 里，页脚提交按钮的 type 为 submit。
+   title 的 id 固定为 <id>-title，页面脚本按 #xxx-modal-title 取标题节点。 #}
+{% macro modal(id, title, size=None, form_id=None, body_id=None, submit_label=None,
+               submit_id=None, submit_class='btn-primary', submit_type='submit',
+               cancel_label='取消', perm=None, attrs=None, novalidate=True) -%}
+<div class="mask" id="{{ id }}" hidden>
+  <div class="modal{% if size %} {{ size }}{% endif %}">
+    {% if form_id %}<form id="{{ form_id }}"{% if novalidate %} novalidate{% endif %}{% if attrs %} {{ attrs | safe }}{% endif %}>{% endif %}
+    <div class="modal-head">
+      <span id="{{ id }}-title">{{ title }}</span>
+      <button type="button" class="close" data-modal-close="{{ id }}" aria-label="关闭">&times;</button>
+    </div>
+    <div class="modal-body"{% if body_id %} id="{{ body_id }}"{% endif %}>{{ caller() if caller is defined else '' }}</div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-modal-close="{{ id }}">{{ cancel_label }}</button>
+      {# 传了 submit_id 或 submit_label 才渲染提交按钮；纯详情弹层只留关闭 #}
+      {% set label = submit_label if submit_label else ('保存' if submit_id else '') %}
+      {% if label %}
+      <button type="{{ submit_type }}" class="btn {{ submit_class }}"{% if submit_id %} id="{{ submit_id }}"{% endif %}{% if perm %} data-perm="{{ perm }}"{% endif %}>{{ label }}</button>
+      {% endif %}
+    </div>
+    {% if form_id %}</form>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{# ------------------------------- 展示 ------------------------------- #}
+
+{% macro tag(text, color=None) -%}
+<span class="tag{% if color %} {{ color }}{% endif %}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro desc_item(key, value) -%}
+<div class="desc-item"><div class="k">{{ key }}</div><div class="v">{{ value }}</div></div>
+{%- endmacro %}
+
+{# ------------------------------ 文件导入 ------------------------------ #}
+
+{# CSV 导入弹层。hint 用来写「支持哪些列」的说明，页面脚本在提交时把
+   dry_run 开关一起塞进 FormData，所以这里不画提交按钮，由脚本控制。 #}
+{% macro import_modal(id, title, hint=None, form_id=None, input_id='import-file',
+                      submit_id='import-submit', perm=None, dry_id='import-dry') -%}
+<div class="mask" id="{{ id }}" hidden>
+  <div class="modal">
+    <form id="{{ form_id or id ~ '-form' }}" novalidate>
+      <div class="modal-head">
+        <span id="{{ id }}-title">{{ title }}</span>
+        <button type="button" class="close" data-modal-close="{{ id }}" aria-label="关闭">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="{{ input_id }}">选择 CSV 文件</label>
+          <input class="input" id="{{ input_id }}" name="file" type="file" accept=".csv,text/csv">
+          {% if hint %}<div class="help">{{ hint }}</div>{% endif %}
+          <div class="err"></div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="{{ dry_id }}" checked>
+          <span class="track"></span><span class="label">先预检再导入（只校验，不写入）</span>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" data-modal-close="{{ id }}">取消</button>
+        <button type="submit" class="btn btn-primary" id="{{ submit_id }}"{% if perm %} data-perm="{{ perm }}"{% endif %}>开始导入</button>
+      </div>
+    </form>
+  </div>
+</div>
+{%- endmacro %}
+
+{# 统计卡片：value 用 data-stat 标记，由页面脚本填充 #}
+{% macro stat(label, key, icon_name, color='var(--primary)', weak='var(--primary-weak)') -%}
+<div class="stat">
+  <div>
+    <div class="k">{{ label }}</div>
+    <div class="v" data-stat="{{ key }}">-</div>
+  </div>
+  <span class="ico" style="color:{{ color }};background:{{ weak }}">{{ icon(icon_name, 19) }}</span>
+</div>
+{%- endmacro %}
+
+{% macro loading(text='加载中...') -%}
+<div class="loading-block"><span class="spinner"></span>{% if text %}<span>{{ text }}</span>{% endif %}</div>
+{%- endmacro %}

@@ -1,0 +1,43 @@
+/* ==========================================================================
+   portal.css —— 前台站点层
+   只在前台页面加载（layouts/portal.html）。后台不引入这一份，
+   前台也不引入 admin.css，两边样式互不干扰。
+   ========================================================================== */
+
+.portal { min-height: 100vh; background: var(--bg-layout); }
+
+.portal-nav {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px;
+  background: var(--bg-container);
+  border-bottom: 1px solid var(--split);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.portal-nav .spacer { margin-left: auto; }
+
+.portal-hero { padding: 80px 32px 64px; text-align: center; max-width: 960px; margin: 0 auto; }
+.portal-hero .eyebrow { display: inline-block; padding: 4px 12px; border-radius: 20px; background: var(--primary-weak); color: var(--primary); font-size: 13px; font-weight: 500; }
+.portal-hero h1 { font-size: 46px; line-height: 1.2; margin: 18px 0 14px; }
+.portal-hero p { font-size: 17px; color: var(--text-2); max-width: 640px; margin: 0 auto 28px; }
+
+.portal-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; max-width: 1040px; margin: 0 auto; padding: 0 32px 64px; }
+.portal-card { background: var(--bg-container); border: 1px solid var(--split); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }
+.portal-card h3 { font-size: 16px; margin-bottom: 8px; }
+.portal-card p { color: var(--text-3); font-size: var(--font-size-sm); margin: 0; }
+
+.portal-notices { max-width: 1040px; margin: 0 auto; padding: 0 32px 80px; }
+
+.portal-footer { border-top: 1px solid var(--split); padding: 24px 32px; text-align: center; color: var(--text-3); font-size: 12px; background: var(--bg-container); }
+
+@media (max-width: 720px) {
+  .portal-nav { padding: 0 16px; }
+  .portal-hero { padding: 56px 16px 40px; }
+  .portal-hero h1 { font-size: 32px; }
+  .portal-cards { padding: 0 16px 48px; }
+}
