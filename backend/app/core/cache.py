@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import logging
 import time
 from typing import Any
 
 from app.core.config import settings
+
+logger = logging.getLogger("fastcms.cache")
 
 
 class MemoryCache:
@@ -123,27 +127,67 @@ class RedisCache:
 
 
 _cache: MemoryCache | RedisCache | None = None
+# 启动期 init_cache() 失败的原因。不记这个标记的话，Redis ping 失败会让 _cache
+# 停在 None，随后任意 get_cache() 又惰性造一个 MemoryCache —— P1-9 的「连不上
+# 就明确失败」被静默降级架空，多 worker 下配置/限流还会在进程间漂移。
+_cache_init_error: str | None = None
 
 
 def get_cache() -> MemoryCache | RedisCache:
     global _cache
     if _cache is None:
+        if _cache_init_error:
+            raise RuntimeError(f"缓存初始化失败，拒绝静默降级为内存缓存：{_cache_init_error}")
+        # 仅测试 / 裸 ASGI（不跑 lifespan）场景允许惰性内存缓存；正式启动必经 init_cache()
         _cache = MemoryCache()
     return _cache
 
 
 async def init_cache() -> None:
-    global _cache
+    """初始化缓存后端，并在启动期严格校验配置（P1-9）。
+
+    - 多 worker（APP_WORKERS>1）必须使用 Redis：多进程共享数据库但各自持有内存
+      缓存，配置/字典/限流会在 worker 间不一致，因此直接拒绝降级为内存缓存；
+    - ``redis_enabled`` 时要求 ``redis_url`` 合法且连通（连不上立即失败，不静默降级）；
+    - 单进程保留 MemoryCache。
+    """
+    global _cache, _cache_init_error
+    _cache_init_error = None
     if settings.redis_enabled:
-        cache = RedisCache(settings.redis_url)
-        await cache.client.ping()
+        url = (settings.redis_url or "").strip()
+        if not url.startswith(("redis://", "rediss://")):
+            _cache_init_error = "REDIS_URL 缺失或非法"
+            raise RuntimeError(
+                "REDIS_ENABLED=true 但 REDIS_URL 缺失或非法（需 redis:// 或 rediss://）"
+            )
+        cache = RedisCache(url)
+        try:
+            await cache.client.ping()
+        except Exception as exc:
+            # ping 失败时 client 已建好但没人接管：先关掉，别把连接池泄漏给 GC
+            with contextlib.suppress(Exception):
+                await cache.close()
+            _cache_init_error = f"Redis 连接失败（{exc}）"
+            raise
         _cache = cache
+        logger.info("缓存后端=redis url=%s", url)
     else:
+        if settings.app_workers > 1:
+            raise RuntimeError(
+                "APP_WORKERS>1 必须启用 Redis（REDIS_ENABLED=true）：多 worker 共享数据库但各自"
+                "持有内存缓存，配置/字典/限流状态会在 worker 间不一致。"
+            )
         _cache = MemoryCache()
+        logger.info("缓存后端=memory（单进程，无跨 worker 一致性）")
 
 
 async def close_cache() -> None:
     global _cache
-    if _cache is not None:
-        await _cache.close()
-        _cache = None
+    # 先把单例摘掉再 close：RedisCache.close() 抛异常时，_cache 不能继续指向
+    # 一个半关闭的 client，否则后续 get_cache() 会拿到坏连接。
+    cache, _cache = _cache, None
+    # 不在这里清 _cache_init_error：启动失败 → lifespan 清理 → 进程内重启
+    # 这条路径若把标记抹掉，get_cache() 又会静默降级成 MemoryCache。
+    # 标记只由下一次成功的 init_cache() 重置。
+    if cache is not None:
+        await cache.close()

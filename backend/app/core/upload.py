@@ -52,6 +52,22 @@ IMAGE_EXTENSIONS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"}
 )
 
+# 可在浏览器内联展示的图片类型白名单。SVG/HTML 等文本格式会被排除：
+# 它们与后台同源，内联返回等于把存储型 XSS 直接送进管理页面。
+# 定义在 core 而不是 content 模块，避免上传安全层反向依赖业务模块。
+SAFE_IMAGE_TYPES: frozenset[str] = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"}
+)
+
+
+def is_safe_image_content_type(content_type: str | None) -> bool:
+    """已入库文件的类型是否属于可内联展示的图片。
+
+    入参是字符串而不是模型对象：判断逻辑属于上传安全层，不该反过来依赖
+    ``app.kernel.models``，否则 core 层又多一条对上层模型的引用。
+    """
+    return (content_type or "") in SAFE_IMAGE_TYPES
+
 # 纯文本扩展名对应的 Content-Type，用于客户端没声明、服务端也嗅探不到时兜底。
 TEXT_EXTENSION_MIMES: dict[str, str] = {
     ".txt": "text/plain",
@@ -166,15 +182,14 @@ def validate_upload(
     if image_only:
         # 头像一定会被内联展示，必须同时满足：扩展名是图片 + 真的嗅到图片签名
         if suffix not in IMAGE_EXTENSIONS or sniffed is None:
-            raise AppError("TOOL_FILE_TYPE_FORBIDDEN", "头像只能是 PNG/JPEG/GIF/WebP/BMP 图片", 422)
-        from app.modules.content.service import SAFE_IMAGE_TYPES
+            raise AppError("TOOL_FILE_TYPE_FORBIDDEN", status_code=422)
 
         if sniffed not in SAFE_IMAGE_TYPES:
-            raise AppError("TOOL_FILE_TYPE_MISMATCH", "文件内容与图片格式不符", 422)
+            raise AppError("TOOL_FILE_TYPE_MISMATCH", status_code=422)
         return suffix, sniffed
 
     if not suffix:
-        raise AppError("TOOL_FILE_NO_EXTENSION", "文件缺少扩展名，无法判定类型", 422)
+        raise AppError("TOOL_FILE_NO_EXTENSION", status_code=422)
     if suffix not in UPLOAD_ALLOWED_EXTENSIONS:
         raise AppError(
             "TOOL_FILE_TYPE_FORBIDDEN",

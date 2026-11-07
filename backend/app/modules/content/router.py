@@ -6,13 +6,16 @@ from fastapi import Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authz import AuthContext, get_current_user, require_admin
+from app.core.authz import AuthContext, get_current_user, optional_auth, require_admin
+from app.core.envelope import CountResult, Envelope, Page
 from app.core.errors import success
 from app.core.pagination import PageParams, page_data
 from app.core.routing import protected_router
 from app.db.session import get_db
+from app.kernel import files as file_service
+from app.kernel.schemas import FileOut
 from app.modules.content import service
-from app.modules.content.schemas import NoticeCreate, NoticeUpdate
+from app.modules.content.schemas import NoticeCreate, NoticeOut, NoticeUpdate
 
 router = protected_router(tags=["内容管理"])
 admin_router = protected_router(
@@ -21,17 +24,25 @@ admin_router = protected_router(
 )
 
 
-@router.get("/content/notices/published", summary="已发布公告（用户端）")
+@router.get(
+    "/content/notices/published",
+    summary="已发布公告（用户端）",
+    response_model=Envelope[Page[NoticeOut]],
+)
 async def list_published_notices(
     params: PageParams = Depends(),
-    ctx: AuthContext = Depends(get_current_user),
+    ctx: AuthContext = Depends(optional_auth),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await service.list_published_notices(db, ctx, params)
     return success(page_data(items, total, params))
 
 
-@router.get("/content/notices/unread-count", summary="未读公告数量")
+@router.get(
+    "/content/notices/unread-count",
+    summary="未读公告数量",
+    response_model=Envelope[CountResult],
+)
 async def unread_notice_count(
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -39,7 +50,11 @@ async def unread_notice_count(
     return success({"count": await service.unread_notice_count(db, ctx)})
 
 
-@router.post("/content/notices/read-all", summary="全部公告标记已读")
+@router.post(
+    "/content/notices/read-all",
+    summary="全部公告标记已读",
+    response_model=Envelope[CountResult],
+)
 async def read_all_notices(
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -48,16 +63,24 @@ async def read_all_notices(
     return success({"count": count}, "已全部标记为已读")
 
 
-@router.get("/content/notices/{notice_id}/published", summary="公告详情（用户端）")
+@router.get(
+    "/content/notices/{notice_id}/published",
+    summary="公告详情（用户端）",
+    response_model=Envelope[NoticeOut],
+)
 async def get_published_notice(
     notice_id: int,
-    ctx: AuthContext = Depends(get_current_user),
+    ctx: AuthContext = Depends(optional_auth),
     db: AsyncSession = Depends(get_db),
 ):
     return success(await service.get_published_notice(db, ctx, notice_id))
 
 
-@router.post("/content/notices/{notice_id}/read", summary="标记公告已读")
+@router.post(
+    "/content/notices/{notice_id}/read",
+    summary="标记公告已读",
+    response_model=Envelope[None],
+)
 async def mark_notice_read(
     notice_id: int,
     ctx: AuthContext = Depends(get_current_user),
@@ -67,19 +90,29 @@ async def mark_notice_read(
     return success(None, "已标记为已读")
 
 
-@admin_router.get("/content/notices", summary="公告列表（管理端）", permission="system:notice:list")
+@admin_router.get(
+    "/content/notices",
+    summary="公告列表（管理端）",
+    permission="system:notice:list",
+    response_model=Envelope[Page[NoticeOut]],
+)
 async def list_notices(
     params: PageParams = Depends(),
     keyword: str | None = Query(default=None, max_length=128),
-    status: str | None = Query(default=None, pattern="^(draft|published)$"),
-    ctx: AuthContext = Depends(get_current_user),
+    status: str | None = Query(default=None, pattern="^(draft|published|offline)$"),
+    _ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await service.list_notices(db, params, keyword=keyword, status=status)
     return success(page_data(items, total, params))
 
 
-@admin_router.post("/content/notices", summary="创建公告", permission="system:notice:create")
+@admin_router.post(
+    "/content/notices",
+    summary="创建公告",
+    permission="system:notice:create",
+    response_model=Envelope[NoticeOut],
+)
 async def create_notice(
     data: NoticeCreate,
     ctx: AuthContext = Depends(get_current_user),
@@ -88,16 +121,26 @@ async def create_notice(
     return success(await service.create_notice(db, ctx, data), "公告已创建")
 
 
-@admin_router.get("/content/notices/{notice_id}", summary="公告详情（管理端）", permission="system:notice:list")
+@admin_router.get(
+    "/content/notices/{notice_id}",
+    summary="公告详情（管理端）",
+    permission="system:notice:list",
+    response_model=Envelope[NoticeOut],
+)
 async def get_notice(
     notice_id: int,
-    ctx: AuthContext = Depends(get_current_user),
+    _ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return success(await service.get_notice(db, notice_id))
 
 
-@admin_router.put("/content/notices/{notice_id}", summary="更新公告", permission="system:notice:update")
+@admin_router.put(
+    "/content/notices/{notice_id}",
+    summary="更新公告",
+    permission="system:notice:update",
+    response_model=Envelope[NoticeOut],
+)
 async def update_notice(
     notice_id: int,
     data: NoticeUpdate,
@@ -107,7 +150,12 @@ async def update_notice(
     return success(await service.update_notice(db, ctx, notice_id, data), "公告已更新")
 
 
-@admin_router.post("/content/notices/{notice_id}/publish", summary="发布公告", permission="system:notice:publish")
+@admin_router.post(
+    "/content/notices/{notice_id}/publish",
+    summary="发布公告",
+    permission="system:notice:publish",
+    response_model=Envelope[NoticeOut],
+)
 async def publish_notice(
     notice_id: int,
     ctx: AuthContext = Depends(get_current_user),
@@ -116,7 +164,12 @@ async def publish_notice(
     return success(await service.publish_notice(db, ctx, notice_id), "公告已发布")
 
 
-@admin_router.post("/content/notices/{notice_id}/unpublish", summary="下线公告", permission="system:notice:publish")
+@admin_router.post(
+    "/content/notices/{notice_id}/unpublish",
+    summary="下线公告",
+    permission="system:notice:publish",
+    response_model=Envelope[NoticeOut],
+)
 async def unpublish_notice(
     notice_id: int,
     ctx: AuthContext = Depends(get_current_user),
@@ -125,17 +178,27 @@ async def unpublish_notice(
     return success(await service.unpublish_notice(db, ctx, notice_id), "公告已下线")
 
 
-@admin_router.delete("/content/notices/{notice_id}", summary="删除公告", permission="system:notice:delete")
+@admin_router.delete(
+    "/content/notices/{notice_id}",
+    summary="删除公告",
+    permission="system:notice:delete",
+    response_model=Envelope[None],
+)
 async def delete_notice(
     notice_id: int,
-    ctx: AuthContext = Depends(get_current_user),
+    _ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await service.delete_notice(db, notice_id)
     return success(None, "公告已删除")
 
 
-@admin_router.get("/tool/files", summary="文件列表", permission="tool:file:list")
+@admin_router.get(
+    "/tool/files",
+    summary="文件列表",
+    permission="tool:file:list",
+    response_model=Envelope[Page[FileOut]],
+)
 async def list_files(
     params: PageParams = Depends(),
     keyword: str | None = Query(default=None, max_length=255),
@@ -145,20 +208,25 @@ async def list_files(
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    items, total = await service.list_files(
+    items, total = await file_service.list_files(
         db, ctx, params, keyword=keyword, uploader_id=uploader_id, start=start, end=end
     )
     return success(page_data(items, total, params))
 
 
-@admin_router.post("/tool/files/upload", summary="上传文件", permission="tool:file:upload")
+@admin_router.post(
+    "/tool/files/upload",
+    summary="上传文件",
+    permission="tool:file:upload",
+    response_model=Envelope[FileOut],
+)
 async def upload_file(
     file: UploadFile = File(...),
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return success(
-        await service.upload_file(
+        await file_service.upload_file(
             db,
             ctx,
             filename=file.filename,
@@ -169,23 +237,41 @@ async def upload_file(
     )
 
 
-@admin_router.get("/tool/files/{file_id}", summary="文件元数据", permission="tool:file:list")
+@admin_router.get(
+    "/tool/files/{file_id}",
+    summary="文件元数据",
+    permission="tool:file:list",
+    response_model=Envelope[FileOut],
+)
 async def get_file(
     file_id: int,
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return success(await service.get_file_meta(db, ctx, file_id))
+    return success(await file_service.get_file_meta(db, ctx, file_id))
 
 
-@admin_router.get("/tool/files/{file_id}/download", summary="下载文件", permission="tool:file:download")
+@admin_router.get(
+    "/tool/files/{file_id}/download",
+    summary="下载文件",
+    permission="tool:file:download",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "description": "文件二进制流",
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            },
+        }
+    },
+)
 async def download_file(
     file_id: int,
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    item = await service.get_file(db, ctx, file_id)
-    path = service.file_path(item)
+    item = await file_service.get_file(db, ctx, file_id)
+    path = file_service.file_path(item)
     return FileResponse(
         path,
         media_type=item.content_type or "application/octet-stream",
@@ -200,13 +286,18 @@ async def download_file(
     )
 
 
-@admin_router.delete("/tool/files/{file_id}", summary="删除文件", permission="tool:file:delete")
+@admin_router.delete(
+    "/tool/files/{file_id}",
+    summary="删除文件",
+    permission="tool:file:delete",
+    response_model=Envelope[None],
+)
 async def delete_file(
     file_id: int,
     ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await service.delete_file(db, ctx, file_id)
+    await file_service.delete_file(db, ctx, file_id)
     return success(None, "文件已删除")
 
 

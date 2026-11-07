@@ -312,6 +312,31 @@ def test_ban_out_of_scope_user_is_forbidden(client: TestClient, admin_token: str
     assert forbidden.status_code == 403
     assert forbidden.json()["code"] == "SYSTEM_USER_FORBIDDEN"
 
+    # 封禁列表同样受数据范围约束：它带着用户名、部门、登录 IP 与归属地，
+    # 不设范围等于给部门管理员开了一个跨部门侦察口。
+    banned = client.post(
+        f"/api/v1/security/users/{outsider}/ban",
+        headers=headers,
+        json={"reason": "超管封禁", "ban_ip": False},
+    )
+    assert banned.status_code == 200, banned.text
+    scoped_list = _unwrap(
+        client.get(
+            "/api/v1/security/banned-users",
+            headers=scoped,
+            params={"keyword": "ban_scope_b_staff"},
+        )
+    )
+    assert scoped_list["total"] == 0, "A 部管理员不应看到 B 部的封禁用户"
+    full_list = _unwrap(
+        client.get(
+            "/api/v1/security/banned-users",
+            headers=headers,
+            params={"keyword": "ban_scope_b_staff"},
+        )
+    )
+    assert any(item["username"] == "ban_scope_b_staff" for item in full_list["items"])
+
 
 # ------------------------------- API Key -------------------------------
 

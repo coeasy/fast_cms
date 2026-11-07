@@ -1,8 +1,11 @@
-import {
-  $, $$, api, can, closeModal, confirmDialog, esc, fillForm, openModal, resetForm,
-  serializeForm, setFieldError, setLoading, statusTag, STATUS_MAP, toast, validateForm,
-} from '../../core.js';
-import { DataTable, actionButtons, fillMultiSelect } from '../../ui.js';
+import { $, esc } from '../../core/base.js';
+import { confirmDialog, toast } from '../../core/dialog.js';
+import { fillForm, setFieldError } from '../../core/form.js';
+import { msg } from '../../core/messages.js';
+import { STATUS_MAP, statusTag } from '../../core/other.js';
+import { can } from '../../core/permission.js';
+import { api } from '../../core/request.js';
+import { actionButtons, createCrudPage, fillMultiSelect } from '../../ui.js';
 
 const CHANNEL_LABELS = {
   dingtalk: { label: '钉钉', color: 'blue' },
@@ -17,16 +20,15 @@ const EVENT_OPTIONS = [
   { value: 'notice.published', label: '公告发布' },
 ];
 
-let table;
-let editing = null;
+let page;
 
 export async function init() {
   fillMultiSelect($('#ch-events'), EVENT_OPTIONS);
 
-  table = new DataTable({
-    table: $('table.data'),
-    pager: $('.pager'),
-    fetch: (params) => api.get('/notify/channels', params),
+  page = createCrudPage({
+    endpoint: '/notify/channels',
+    pagerSelector: '.pager',
+    filters: '#filters',
     columns: [
       { render: (row) => `<span class="strong">${esc(row.name)}</span>` },
       {
@@ -44,10 +46,64 @@ export async function init() {
       { render: (row) => statusTag(row.status, STATUS_MAP) },
       { className: 'actions', render: (row) => rowActions(row) },
     ],
+    form: {
+      id: '#channel-form',
+      modal: 'channel-modal',
+      titleId: '#channel-modal-title',
+      submitId: '#channel-submit',
+      titleCreate: '新建渠道',
+      titleEdit: (row) => `编辑渠道 ${row.name}`,
+      onCreate: (form) => {
+        // 新建时地址必填；编辑时留空表示「保留原地址」，因此只切换 required
+        form.querySelectorAll('[data-create-only]').forEach((node) => node.classList.remove('hidden'));
+        $('#ch-url').required = true;
+        $('#ch-url').placeholder = 'https://...';
+        selectEvents(['job.failed']);
+        form.status.value = 'enabled';
+      },
+      onEdit: (form, row) => {
+        form.querySelectorAll('[data-create-only]').forEach((node) => node.classList.add('hidden'));
+        $('#ch-url').required = false;
+        $('#ch-url').placeholder = row.webhook_url_masked || '留空表示保留原有地址';
+        fillForm(form, {
+          name: row.name,
+          channel_type: row.channel_type,
+          remark: row.remark,
+          status: row.status,
+        });
+        selectEvents(row.events || []);
+      },
+      payload: (values, row) => {
+        if (!values.events?.length) {
+          setFieldError($('#ch-events select'), '至少选择一个事件');
+          toast(msg('channel.requireEvents'), 'warning');
+          return false;
+        }
+        const payload = {
+          name: values.name,
+          channel_type: values.channel_type,
+          events: values.events,
+          status: values.status,
+          remark: values.remark,
+          secret: values.secret || null,
+        };
+        if (values.webhook_url) payload.webhook_url = values.webhook_url;
+        else if (!row) {
+          toast(msg('channel.requireWebhook'), 'warning');
+          return false;
+        }
+        return payload;
+      },
+    },
+    messages: { created: 'channel.created', updated: 'channel.updated', deleted: 'channel.deleted' },
+    confirm: {
+      title: '删除渠道',
+      message: (row) => `确认删除渠道「${row.name}」？历史发送记录会保留。`,
+    },
+    actions: [{ act: 'test', run: (row) => testChannel(row) }],
   });
 
-  await table.load(1);
-  bind();
+  await page.init();
 }
 
 function rowActions(row) {
@@ -58,112 +114,17 @@ function rowActions(row) {
   ]);
 }
 
-function bind() {
-  $('#filters').addEventListener('submit', (event) => {
-    event.preventDefault();
-    table.search(serializeForm(event.currentTarget));
-  });
-  $('#filters').addEventListener('reset', () => setTimeout(() => table.search({}), 0));
-  $('#btn-refresh')?.addEventListener('click', () => table.reload());
-  $('#btn-create')?.addEventListener('click', openCreate);
-
-  $('table.data').addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-act]');
-    if (!button) return;
-    const row = table.find(Number(button.closest('tr')?.dataset.id));
-    if (!row) return;
-    if (button.dataset.act === 'edit') openEdit(row);
-    else if (button.dataset.act === 'test') test(row);
-    else if (button.dataset.act === 'delete') remove(row);
-  });
-
-  $('#channel-form').addEventListener('submit', submit);
-}
-
-function openCreate() {
-  editing = null;
-  const form = $('#channel-form');
-  resetForm(form);
-  $('#channel-modal-title').textContent = '新建渠道';
-  $$('[data-create-only]', form).forEach((node) => node.classList.remove('hidden'));
-  $('#ch-url').required = true;
-  $('#ch-url').placeholder = 'https://...';
+/** multi-select 是「隐藏 select + 可视面板」，改选中态后必须派发 change 让面板同步 */
+function selectEvents(values) {
   const select = $('#ch-events select');
-  Array.from(select.options).forEach((option) => {
-    option.selected = option.value === 'job.failed';
-  });
-  select.dispatchEvent(new Event('change'));
-  form.status.value = 'enabled';
-  openModal('channel-modal');
-}
-
-function openEdit(row) {
-  editing = row;
-  const form = $('#channel-form');
-  resetForm(form);
-  $('#channel-modal-title').textContent = `编辑渠道 ${row.name}`;
-  $$('[data-create-only]', form).forEach((node) => node.classList.add('hidden'));
-  $('#ch-url').required = false;
-  $('#ch-url').placeholder = row.webhook_url_masked || '留空表示保留原有地址';
-  fillForm(form, {
-    name: row.name,
-    channel_type: row.channel_type,
-    remark: row.remark,
-    status: row.status,
-  });
-  const select = $('#ch-events select');
-  const chosen = new Set(row.events || []);
+  const chosen = new Set(values);
   Array.from(select.options).forEach((option) => {
     option.selected = chosen.has(option.value);
   });
   select.dispatchEvent(new Event('change'));
-  openModal('channel-modal');
 }
 
-async function submit(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!validateForm(form)) return;
-  const values = serializeForm(form);
-  if (!values.events?.length) {
-    setFieldError($('#ch-events select'), '至少选择一个事件');
-    toast('至少选择一个订阅事件', 'warning');
-    return;
-  }
-  const payload = {
-    name: values.name,
-    channel_type: values.channel_type,
-    events: values.events,
-    status: values.status,
-    remark: values.remark,
-    secret: values.secret || null,
-  };
-  if (values.webhook_url) payload.webhook_url = values.webhook_url;
-  else if (!editing) {
-    toast('请填写 Webhook 地址', 'warning');
-    return;
-  }
-
-  const button = $('#channel-submit');
-  setLoading(button, true);
-  try {
-    if (editing) {
-      await api.put(`/notify/channels/${editing.id}`, payload);
-      toast('渠道已更新', 'success');
-    } else {
-      await api.post('/notify/channels', payload);
-      toast('渠道创建成功', 'success');
-    }
-    closeModal('channel-modal');
-    table.reload();
-  } catch {
-    /* 请求层已提示 */
-  } finally {
-    setLoading(button, false);
-  }
-}
-
-async function test(row) {
+async function testChannel(row) {
   const ok = await confirmDialog({
     title: '测试渠道',
     message: `将向「${row.name}」发送一条测试消息，确认继续？`,
@@ -172,26 +133,9 @@ async function test(row) {
   if (!ok) return;
   try {
     const record = await api.post(`/notify/channels/${row.id}/test`);
-    if (record?.status === 'success') toast('测试消息已发送', 'success');
+    if (record?.status === 'success') toast(msg('channel.testSent'), 'success');
     else toast(`测试发送结果：${record?.status || '未知'}${record?.last_error ? `（${record.last_error}）` : ''}`, 'warning');
-    table.reload();
-  } catch {
-    /* 请求层已提示 */
-  }
-}
-
-async function remove(row) {
-  const ok = await confirmDialog({
-    title: '删除渠道',
-    message: `确认删除渠道「${row.name}」？历史发送记录会保留。`,
-    okText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await api.del(`/notify/channels/${row.id}`);
-    toast('渠道已删除', 'success');
-    table.reload();
+    page.table.reload();
   } catch {
     /* 请求层已提示 */
   }

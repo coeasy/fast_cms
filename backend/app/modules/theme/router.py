@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authz import AuthContext, get_current_user, require_admin
+from app.core.envelope import Envelope
 from app.core.errors import success
 from app.core.routing import protected_router
 from app.db.session import get_db
 from app.modules.theme import service
-from app.modules.theme.schemas import ThemeCreate, ThemeUpdate
+from app.modules.theme.schemas import PublicThemeOut, ThemeCreate, ThemeOut, ThemeUpdate
 
 public_router = APIRouter(prefix="/system", tags=["主题模板"])
 router = protected_router(
@@ -18,29 +19,29 @@ router = protected_router(
 )
 
 
-@public_router.get("/themes/public", summary="公开主题模板")
+@public_router.get("/themes/public", summary="公开主题模板", response_model=Envelope[PublicThemeOut])
 async def public_themes(db: AsyncSession = Depends(get_db)):
     return success(await service.public_theme(db))
 
 
-@router.get("/themes", summary="主题模板列表", permission="system:theme:list")
+@router.get("/themes", summary="主题模板列表", permission="system:theme:list", response_model=Envelope[list[ThemeOut]])
 async def list_themes(
-    ctx: AuthContext = Depends(get_current_user),
+    _ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return success(await service.list_themes(db))
 
 
-@router.get("/themes/{theme_id}", summary="主题模板详情", permission="system:theme:list")
+@router.get("/themes/{theme_id}", summary="主题模板详情", permission="system:theme:list", response_model=Envelope[ThemeOut])
 async def get_theme(
     theme_id: int,
-    ctx: AuthContext = Depends(get_current_user),
+    _ctx: AuthContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return success(await service.get_theme(db, theme_id))
 
 
-@router.post("/themes", summary="创建主题模板", permission="system:theme:create")
+@router.post("/themes", summary="创建主题模板", permission="system:theme:create", response_model=Envelope[ThemeOut])
 async def create_theme(
     data: ThemeCreate,
     ctx: AuthContext = Depends(get_current_user),
@@ -49,7 +50,7 @@ async def create_theme(
     return success(await service.create_theme(db, ctx, data), "主题模板已创建")
 
 
-@router.put("/themes/{theme_id}", summary="更新主题模板", permission="system:theme:update")
+@router.put("/themes/{theme_id}", summary="更新主题模板", permission="system:theme:update", response_model=Envelope[ThemeOut])
 async def update_theme(
     theme_id: int,
     data: ThemeUpdate,
@@ -59,7 +60,7 @@ async def update_theme(
     return success(await service.update_theme(db, ctx, theme_id, data), "主题模板已更新")
 
 
-@router.delete("/themes/{theme_id}", summary="删除主题模板", permission="system:theme:delete")
+@router.delete("/themes/{theme_id}", summary="删除主题模板", permission="system:theme:delete", response_model=Envelope[None])
 async def delete_theme(
     theme_id: int,
     ctx: AuthContext = Depends(get_current_user),
@@ -69,7 +70,7 @@ async def delete_theme(
     return success(None, "主题模板已删除")
 
 
-@router.post("/themes/{theme_id}/activate", summary="启用主题模板", permission="system:theme:update")
+@router.post("/themes/{theme_id}/activate", summary="启用主题模板", permission="system:theme:update", response_model=Envelope[ThemeOut])
 async def activate_theme(
     theme_id: int,
     ctx: AuthContext = Depends(get_current_user),

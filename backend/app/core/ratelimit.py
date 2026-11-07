@@ -74,7 +74,7 @@ def _principal_identity(scope: Scope) -> str | None:
         return None
     try:
         payload = decode_access_token(token[7:].strip())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return str(payload.get("sub") or "") or None
 

@@ -16,6 +16,19 @@ from app.core.errors import AppError
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 GENERATED_ROOT = Path(__file__).resolve().parents[2] / "generated"
 
+# 生成模块的注册顺序：内置模块占用 10~120，生成模块统一排在它们之后，
+# 保证新模块不会插进既有路由表中间，也便于在 OpenAPI 里辨认。
+GENERATED_MODULE_ORDER = 200
+# 生成模块在菜单树里的排序：介于「工具中心」(50) 与「个人中心」(90) 之间。
+GENERATED_MENU_SORT = 60
+# 生成路由声明的权限码动作与中文名，与 router.py.j2 里的 permission 一一对应。
+PERMISSION_ACTIONS: tuple[tuple[str, str], ...] = (
+    ("list", "查看"),
+    ("create", "创建"),
+    ("update", "更新"),
+    ("delete", "删除"),
+)
+
 environment = Environment(
     loader=FileSystemLoader(str(TEMPLATE_DIR)),
     undefined=StrictUndefined,
@@ -27,6 +40,51 @@ environment = Environment(
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MODULE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 SYSTEM_PREFIXES = ("sys_", "alembic_", "sqlite_", "_")
+
+# 标题会被原样嵌进生成代码：`description="..."`、docstring、前端 JS 字符串都是
+# 直接插值，而 .py.j2 / .js.j2 都不在 Jinja 的 autoescape 覆盖范围内（只开了 html/xml）。
+# 因此标题里只要有一个引号，产物就是 SyntaxError——用户把文件复制进 app/modules
+# 后启动即崩，报错还指向生成文件，很难联想到是标题里那个引号。
+# 在生成器边界统一中和一次，比在 8 个模板里逐个加转义更难漏。
+#
+# 注意不能把 `"` 换成 `'` 了事：Python 模板用双引号、JS 模板用单引号，换一种引号
+# 只是把语法错误从 .py 挪到 .js。所以两种引号一律删掉，反斜杠换成路径分隔符。
+_TITLE_TRANSLATION = str.maketrans({'"': None, "'": None, "`": None, "\\": "/"})
+_TITLE_BREAKERS = "\r\n\t\v\f"
+
+
+def safe_title(raw: str) -> str:
+    """把标题压成能安全嵌进生成代码的单行文本。
+
+    只处理会破坏字符串字面量的字符：引号、反斜杠、控制换行。中文、空格、括号等
+    正常字符原样保留，因为标题是给人看的展示名，不该被过度清洗。
+    """
+    cleaned = raw.translate(_TITLE_TRANSLATION)
+    cleaned = "".join(" " if ch in _TITLE_BREAKERS else ch for ch in cleaned)
+    cleaned = " ".join(cleaned.split())
+    return cleaned or "未命名"
+
+
+# A-2 / Phase 2-2：按资源名推断默认域分组，保证生成产物与存量模块的目录形态一致
+# （modules/<域>/<模块>/）。系统类资源落 sys，运维/日志类落 ops，其余进新域 biz。
+_OPS_RESOURCES = frozenset(
+    {"audit", "monitor", "schedule", "notify", "export", "dashboard", "job", "job_log", "operation_log", "login_log"}
+)
+_SYS_RESOURCES = frozenset(
+    {
+        "user", "role", "dept", "menu", "permission", "config", "dict_type", "dict_item",
+        "api_key", "ip_rule", "theme", "system", "user_session",
+    }
+)
+
+
+def default_domain(resource: str) -> str:
+    """为生成产物选择一个域分组；显式传 ``domain`` 时优先（调用方已覆盖）。"""
+    if resource in _OPS_RESOURCES or resource.endswith(("_log", "_job")):
+        return "ops"
+    if resource in _SYS_RESOURCES:
+        return "sys"
+    return "biz"
 
 
 @dataclass
@@ -51,7 +109,7 @@ class TableSpec:
         for column in self.columns:
             if column.primary_key:
                 return column
-        raise AppError("CODEGEN_NO_PRIMARY_KEY", "表没有主键，无法生成 CRUD", 422)
+        raise AppError("CODEGEN_NO_PRIMARY_KEY", status_code=422)
 
     @property
     def writable_columns(self) -> list[ColumnSpec]:
@@ -122,13 +180,13 @@ class CodeGenerator:
         self.engine = engine
 
     async def _inspect(self, table: str | None = None) -> dict[str, Any]:
-        def run(sync_connection):  # type: ignore[no-untyped-def]
+        def run(sync_connection):
             inspector = inspect(sync_connection)
             names = inspector.get_table_names()
             if table is None:
                 return {"tables": names, "columns": {}}
             if table not in names:
-                raise AppError("CODEGEN_TABLE_NOT_FOUND", "数据表不存在", 404)
+                raise AppError("CODEGEN_TABLE_NOT_FOUND", status_code=404)
             return {"tables": names, "columns": inspector.get_columns(table), "pk": inspector.get_pk_constraint(table)}
 
         async with self.engine.connect() as connection:
@@ -158,11 +216,11 @@ class CodeGenerator:
 
     async def _columns(self, table: str) -> list[ColumnSpec]:
         if not IDENTIFIER.match(table):
-            raise AppError("CODEGEN_TABLE_INVALID", "表名不合法", 422)
+            raise AppError("CODEGEN_TABLE_INVALID", status_code=422)
         data = await self._inspect(table)
         pk_columns = set(data["pk"].get("constrained_columns") or [])
         if len(pk_columns) > 1:
-            raise AppError("CODEGEN_COMPOSITE_KEY", "首版代码生成不支持联合主键", 422)
+            raise AppError("CODEGEN_COMPOSITE_KEY", status_code=422)
         columns = []
         for column in data["columns"]:
             sa_type, py_type = _python_type(column)
@@ -184,9 +242,9 @@ class CodeGenerator:
 
     async def table_spec(self, table: str) -> TableSpec:
         if not IDENTIFIER.match(table):
-            raise AppError("CODEGEN_TABLE_INVALID", "表名不合法", 422)
+            raise AppError("CODEGEN_TABLE_INVALID", status_code=422)
         if table.startswith(SYSTEM_PREFIXES):
-            raise AppError("CODEGEN_TABLE_SYSTEM", "系统表不允许生成业务代码", 422)
+            raise AppError("CODEGEN_TABLE_SYSTEM", status_code=422)
         return TableSpec(name=table, columns=await self._columns(table))
 
     async def table_columns(self, table: str) -> list[dict[str, Any]]:
@@ -210,26 +268,33 @@ class CodeGenerator:
         module: str,
         resource: str | None = None,
         title: str | None = None,
+        domain: str | None = None,
     ) -> dict[str, str]:
         spec = await self.table_spec(table)
         if not MODULE_PATTERN.match(module):
-            raise AppError("CODEGEN_MODULE_INVALID", "模块名必须为小写字母、数字或下划线", 422)
+            raise AppError("CODEGEN_MODULE_INVALID", status_code=422)
         resource = resource or table
         if not MODULE_PATTERN.match(resource):
-            raise AppError("CODEGEN_RESOURCE_INVALID", "资源名必须为小写字母、数字或下划线", 422)
+            raise AppError("CODEGEN_RESOURCE_INVALID", status_code=422)
+        domain = domain or default_domain(resource)
         class_name = "".join(part.capitalize() for part in resource.split("_")) or "Generated"
         pk = spec.primary_key
         context = {
             "table": spec.name,
             "module": module,
+            "domain": domain,
             "resource": resource,
             "class_name": class_name,
-            "title": title or spec.name,
+            # 标题要嵌进 Python 字面量/前端字符串，先中和再进模板（见 safe_title）
+            "title": safe_title(title or spec.name),
             "columns": spec.columns,
             "writable_columns": spec.writable_columns,
             "pk": pk,
             "permission_prefix": f"{module}:{resource}",
             "route_prefix": f"/{module}/{resource}",
+            "module_order": GENERATED_MODULE_ORDER,
+            "menu_sort": GENERATED_MENU_SORT,
+            "permission_actions": PERMISSION_ACTIONS,
             "sa_imports": sorted({item.sa_type.split("(")[0] for item in spec.columns}),
             "py_imports": sorted(
                 {
@@ -241,6 +306,9 @@ class CodeGenerator:
         }
         files: dict[str, str] = {}
         templates = {
+            # module.py 必须生成：模块靠它被 discover_modules() 发现，
+            # 少了这一个文件，其余代码复制进 app/modules 也不会注册（静默 404）。
+            "module.py": "module.py.j2",
             "model.py": "model.py.j2",
             "schemas.py": "schemas.py.j2",
             "service.py": "service.py.j2",
@@ -272,15 +340,15 @@ class CodeGenerator:
         if not root.is_relative_to(GENERATED_ROOT.resolve()):
             raise AppError("CODEGEN_PATH_INVALID", "输出目录必须位于 generated/ 下", 422)
         if root.exists() and any(root.iterdir()):
-            raise AppError("CODEGEN_TARGET_EXISTS", "目标目录已存在且非空，不覆盖已有文件", 409)
+            raise AppError("CODEGEN_TARGET_EXISTS", status_code=409)
         written = []
         for relative, content in files.items():
             target = (root / relative).resolve()
             if not target.is_relative_to(root):
-                raise AppError("CODEGEN_PATH_INVALID", "生成文件路径非法", 400)
+                raise AppError("CODEGEN_PATH_INVALID", "生成文件路径非法", 422)
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                raise AppError("CODEGEN_FILE_EXISTS", f"文件已存在：{relative}", 409)
+                raise AppError("CODEGEN_FILE_EXISTS", status_code=409, params={"path": relative})
             target.write_text(content, encoding="utf-8")
             written.append(str(target))
         return written

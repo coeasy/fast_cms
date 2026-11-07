@@ -7,20 +7,48 @@
 
 - **列白名单由调用方显式给出**：导出接口最容易把手机号、密码哈希之类的字段
   一起带出去，所以不允许直接序列化整个 ORM 对象；
-- **流式响应**：先算好行再一次性返回会在大数据集上把内存打满，
-  这里边遍历边写 buffer，并对行数设上限，超出部分截断并在响应头里说明。
+- **有界物化**：这不是真流式——整份 CSV 会被一次性编码成一个分片返回。真正的
+  约束是「边遍历边写 buffer + 行数硬上限」，所以内存上界由 ``limit`` 决定（10k 行
+  量级只有几 MB），而不是由表有多大决定。选它不选真流式，是因为只有在返回前把行
+  数数完，才能准确写出 ``X-Export-Rows`` / ``X-Export-Truncated`` 这两个头，前端
+  依赖它们提示「已截断」。哪天要导出百万行，得改成生成器分片并放弃这两个头。
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
 MAX_EXPORT_ROWS = 10000
+
+# Excel / WPS / LibreOffice 会把以这些字符开头的单元格当**公式**执行。
+# 公告标题、用户名、User-Agent 这些都是用户可控字段，一旦有人存了
+# `=HYPERLINK("http://evil","点我")` 或 `=cmd|'/c calc'!A1`，导出后一打开就触发
+# （公式注入 / 数据外泄 / 老版本 DDE 命令执行）。所以写 CSV 前统一中和。
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+# 负数与科学计数法不算公式：`-5`、`+3.2e8` 是数据，加前缀会破坏下游统计。
+_NUMBER_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+
+
+def neutralize_cell(value: Any) -> Any:
+    """把「看起来像公式」的文本单元格转成纯文本。
+
+    做法是加一个前导单引号：Excel 系产品会把它当「强制文本」标记并隐藏，
+    而其它 CSV 消费方（pandas、数据库导入）看到的是明确的数据而非公式。
+    代价是导出再导入会带上这个引号——相比「打开表格就执行远端公式」，这个代价是值得的。
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    if not value.startswith(_FORMULA_LEAD):
+        return value
+    if _NUMBER_RE.match(value):
+        return value
+    return f"'{value}"
 
 
 @dataclass(frozen=True)
@@ -67,14 +95,14 @@ def csv_response(
     # BOM：没有它 Excel 打开 UTF-8 CSV 会把中文显示成乱码
     buffer.write("\ufeff")
     writer = csv.writer(buffer)
-    writer.writerow(list(header))
+    writer.writerow([neutralize_cell(item) for item in header])
     count = 0
     truncated = False
     for row in rows:
         if count >= limit:
             truncated = True
             break
-        writer.writerow(list(row))
+        writer.writerow([neutralize_cell(item) for item in row])
         count += 1
     payload = buffer.getvalue().encode("utf-8")
     response = StreamingResponse(
@@ -83,6 +111,7 @@ def csv_response(
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
             "X-Export-Rows": str(count),
+            "X-Export-Limit": str(limit),
             "X-Export-Truncated": "1" if truncated else "0",
         },
     )

@@ -12,10 +12,10 @@ from app.core.config import settings
 from app.db.base import utcnow
 from app.db.session import session_scope
 from app.jobs.runner import run_job
-from app.modules.notify import service as notify_service
-from app.modules.notify.models import NotifyRecord
-from app.modules.schedule.models import Job
-from app.modules.system.models import User
+from app.kernel.models import User
+from app.modules.ops.notify import service as notify_service
+from app.modules.ops.notify.models import NotifyRecord
+from app.modules.ops.schedule.models import Job
 from tests.conftest import auth
 
 API = "/api/v1"

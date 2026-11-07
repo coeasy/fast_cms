@@ -1,0 +1,20 @@
+{% extends "layouts/portal.html" %}
+
+{% block portal_content %}
+<section class="portal-page">
+  <div class="portal-page-head">
+    <h1>公告</h1>
+    <p>已发布的站内公告，匿名可读；点击标题查看正文。</p>
+  </div>
+
+  <div id="notice-list" class="notice-list" aria-live="polite">
+    <p class="muted">加载中…</p>
+  </div>
+
+  <div id="notice-pager" class="notice-pager" hidden>
+    <button type="button" class="btn btn-sm" id="notice-prev">上一页</button>
+    <span class="muted" id="notice-page-info"></span>
+    <button type="button" class="btn btn-sm" id="notice-next">下一页</button>
+  </div>
+</section>
+{% endblock %}

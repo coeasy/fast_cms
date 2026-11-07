@@ -339,6 +339,47 @@ table.data.compact td { padding: 8px 10px; }
 .table-empty { padding: 48px 16px; text-align: center; color: var(--text-3); }
 .table-empty .big { font-size: 28px; opacity: 0.35; margin-bottom: 8px; }
 
+/* 页面级错误态（B-14）：页面脚本加载/初始化失败时由 app.js 渲染。
+   在此之前这里是一片空白——用户以为系统坏了，运维拿不到任何线索。 */
+.page-error {
+  max-width: 560px;
+  margin: 64px auto;
+  padding: 32px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card, transparent);
+  text-align: center;
+}
+.page-error-icon {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-weak);
+}
+.page-error h1 { font-size: 18px; margin: 0 0 12px; }
+.page-error p { margin: 0 0 8px; color: var(--text-2, var(--text-3)); line-height: 1.7; }
+.page-error code {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  font-size: 12px;
+  word-break: break-all;
+}
+.page-error-detail { font-size: 12px; color: var(--text-3); }
+.page-error-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+
 /* 复选框列：表格自带多选时由 DataTable.selectable 渲染 */
 table.data th.checkbox-cell,
 table.data td.checkbox-cell {
@@ -693,6 +734,35 @@ pre.code {
 .center { text-align: center; }
 .divider { height: 1px; background: var(--split); margin: 16px 0; }
 .vdivider { width: 1px; height: 20px; background: var(--split); margin: 0 4px; }
+
+/* 仅供屏幕阅读器的隐藏文本（表格 caption、跳转链接等无障碍用途） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 键盘用户跳过导航直达主内容的跳转链接：聚焦前藏于视口外 */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 1000;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  text-decoration: none;
+  transition: top .15s;
+}
+.skip-link:focus { top: 8px; }
 
 /* ------------------------------ 主题变体 ------------------------------ */
 

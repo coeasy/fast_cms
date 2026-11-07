@@ -4,4 +4,4 @@
    ========================================================================== #}
 {% extends "base.html" %}
 
-{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/public.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/public.css?v={{ asset_v() }}">{% endblock %}

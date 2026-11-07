@@ -1,5 +1,19 @@
-import { $, api, esc, statusTag, toast } from '../../core.js';
+import {
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  renderState,
+  statusTag
+} from '../../core/other.js';
 import { tag } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 const SCOPE_MAP = { all: '全部', api: '接口', admin: '后台', portal: '前台' };
 // 归属地为空时的两种原因要说清楚：库没加载是配置问题，IP 无法解析是输入问题
@@ -31,7 +45,7 @@ export async function init() {
     event.preventDefault();
     const ip = $('#f-ip').value.trim();
     if (!ip) {
-      toast('请先输入 IP 地址', 'warning');
+      toast(msg('ban.requireIp'), 'warning');
       return;
     }
     runQuery(ip);
@@ -43,32 +57,31 @@ export async function init() {
 
 function resetPage() {
   $('#f-ip').value = '';
-  $('#locate-result').innerHTML =
-    '<div class="table-empty">输入 IP 后点击「查询」，或点右上角「查询我的 IP」看当前出口地址。</div>';
+  renderState($('#locate-result'), { state: 'empty', emptyText: '输入 IP 后点击「查询」，或点右上角「查询我的 IP」看当前出口地址。' });
 }
 
 async function runQuery(ip) {
   const box = $('#locate-result');
-  box.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(box, { state: 'loading' });
   try {
     const result = await api.get(`/security/ip-locate/${encodeURIComponent(ip)}`);
     renderResult(result);
     remember(ip);
   } catch (error) {
-    box.innerHTML = `<div class="table-empty">${esc(error?.message || '查询失败')}</div>`;
+    renderState(box, { state: 'error', message: error?.message });
   }
 }
 
 async function runSelfQuery() {
   const box = $('#locate-result');
-  box.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(box, { state: 'loading' });
   try {
     const result = await api.get('/security/ip-locate/current');
     $('#f-ip').value = result.ip;
     renderResult(result);
     remember(result.ip);
   } catch (error) {
-    box.innerHTML = `<div class="table-empty">${esc(error?.message || '查询失败')}</div>`;
+    renderState(box, { state: 'error', message: error?.message });
   }
 }
 

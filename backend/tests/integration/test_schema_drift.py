@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
 from app.db.base import Base
-from tests.conftest import TEST_DB
+from tests.conftest import current_db_path
 
 
 def _table_name(directive: tuple[Any, ...]) -> str | None:
@@ -21,7 +21,7 @@ def _table_name(directive: tuple[Any, ...]) -> str | None:
 
 def test_migrations_cover_every_model_column(client: TestClient) -> None:
     """模型加了字段却忘了写迁移时接口不会报错，线上建表才缺列，所以直接比对已迁移库与元数据。"""
-    engine = create_engine(f"sqlite:///{TEST_DB.as_posix()}")
+    engine = create_engine(f"sqlite:///{current_db_path().as_posix()}")
     with engine.connect() as connection:
         context = MigrationContext.configure(connection)
         diff = compare_metadata(context, Base.metadata)

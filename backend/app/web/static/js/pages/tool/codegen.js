@@ -1,6 +1,23 @@
 import {
-  $, $$, api, closeModal, confirmDialog, download, esc, openModal, toast,
-} from '../../core.js';
+  $,
+  $$,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  renderState
+} from '../../core/other.js';
+import { msg } from '../../core/messages.js';
+import { boolTag } from '../../ui.js';
 
 let tables = [];
 let current = null;
@@ -25,12 +42,12 @@ export async function init() {
 
 async function loadTables() {
   const host = $('#table-list');
-  host.innerHTML = '<li><div class="loading-block"><span class="spinner"></span></div></li>';
+  renderState(host, { state: 'loading', wrap: 'li' });
   try {
     tables = await api.get('/tool/codegen/tables');
     renderTables();
   } catch (error) {
-    host.innerHTML = `<li><div class="table-empty">${esc(error?.message || '加载失败')}</div></li>`;
+    renderState(host, { state: 'error', message: error?.message, wrap: 'li' });
   }
 }
 
@@ -40,7 +57,7 @@ function renderTables() {
   const items = tables.filter((item) => !keyword || item.table.toLowerCase().includes(keyword));
   $('#table-count').textContent = `${tables.length} 张`;
   if (!items.length) {
-    host.innerHTML = '<li><div class="table-empty">没有匹配的数据表</div></li>';
+    renderState(host, { state: 'empty', emptyText: '没有匹配的数据表', wrap: 'li' });
     return;
   }
   host.innerHTML = items
@@ -78,7 +95,7 @@ async function selectTable(table) {
   }
 
   const tbody = $('#column-rows');
-  tbody.innerHTML = '<tr><td colspan="5"><div class="loading-block"><span class="spinner"></span></div></td></tr>';
+  renderState(tbody, { state: 'loading', colspan: 5 });
   try {
     const columns = await api.get(`/tool/codegen/tables/${encodeURIComponent(table.table)}/columns`);
     $('#columns-title').textContent = `${table.table} · ${columns.length} 个字段`;
@@ -87,14 +104,14 @@ async function selectTable(table) {
         (column) => `<tr>
           <td class="mono">${esc(column.name)}</td>
           <td class="mono tiny">${esc(column.type)}</td>
-          <td>${column.nullable ? '是' : '否'}</td>
+          <td>${boolTag(column.nullable, '可空', '非空')}</td>
           <td>${column.primary_key ? `<span class="tag blue">主键${column.autoincrement ? ' · 自增' : ''}</span>` : '-'}</td>
           <td class="mono tiny">${esc(column.default ?? '-')}</td>
         </tr>`,
       )
       .join('');
   } catch (error) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="table-empty">${esc(error?.message || '字段加载失败')}</div></td></tr>`;
+    renderState(tbody, { state: 'error', message: error?.message, colspan: 5 });
   }
 }
 
@@ -103,11 +120,11 @@ function payload() {
   const resource = $('#g-resource').value.trim();
   const title = $('#g-title').value.trim();
   if (!module) {
-    toast('请填写模块名', 'warning');
+    toast(msg('codegen.requireModule'), 'warning');
     return null;
   }
   if (!current) {
-    toast('请选择数据表', 'warning');
+    toast(msg('codegen.requireTable'), 'warning');
     return null;
   }
   return {
@@ -157,7 +174,7 @@ async function downloadZip() {
       method: 'POST',
       body: data,
     });
-    toast('下载已开始', 'success');
+    toast(msg('common.downloadStarted'), 'success');
   } catch (error) {
     toast(error?.message || '下载失败', 'error');
   }

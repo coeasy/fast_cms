@@ -18,9 +18,15 @@ from app.core.config import settings
 WEB_DIR = Path(__file__).resolve().parent
 
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+# 静态资源版本号：模板引用写成 {{ base }}static/...?v={{ asset_v() }}，
+# 任何 css/js 变动都会改 URL，配合 VersionedStaticFiles 的 immutable 头实现可靠缓存
+from app.web.assets import asset_version  # noqa: E402
+
+templates.env.globals["asset_v"] = asset_version
 
 
 # 页面清单：path 是挂载在 ADMIN_BASE 之后的路径，script 对应 static/js/pages/<name>.js
+# 这里是「存量页面」；新模块在自己的 module.py 里声明 pages，由 all_pages() 合并。
 PAGES: tuple[dict[str, Any], ...] = (
     {
         "path": "/login",
@@ -119,6 +125,13 @@ PAGES: tuple[dict[str, Any], ...] = (
         "title": "操作日志",
         "subtitle": "写操作审计与请求详情",
         "page": "monitor/operation-log",
+    },
+    {
+        "path": "/monitor/event-log",
+        "template": "pages/monitor/event_log.html",
+        "title": "事件投递日志",
+        "subtitle": "事件总线投递成功与失败记录",
+        "page": "monitor/event-log",
     },
     {
         "path": "/schedule/job",
@@ -251,6 +264,29 @@ def base_path(value: str) -> str:
     return f"/{raw.strip('/')}/"
 
 
+def all_pages() -> tuple[dict[str, Any], ...]:
+    """存量 ``PAGES`` + 模块清单 ``pages`` 声明的增量页面。
+
+    合并策略与权限码一致：存量 30 页留在本文件（页面文案与路由路径是既有对外
+    契约），新模块在自己的 ``module.py`` 里声明即可。同路径以存量优先，避免
+    模块声明意外覆盖内置页面。
+
+    延迟导入 ``app.core.module``：``app.web`` 在 ``create_app`` 早期就被导入，
+    提前触发模块发现会把全部 router 一起拉进来。
+    """
+    from app.core.module import module_pages
+
+    known = {page["path"] for page in PAGES}
+    merged = list(PAGES)
+    for item in module_pages():
+        path = item.get("path")
+        if not path or path in known:
+            continue
+        known.add(path)
+        merged.append(dict(item))
+    return tuple(merged)
+
+
 def router_prefix(value: str) -> str:
     """APIRouter 的 prefix：根路径必须是空串，否则会拼出 //path。"""
     raw = (value or "/").strip()
@@ -288,7 +324,7 @@ def build_admin_router(admin_base: str) -> APIRouter:
             status_code=int(page.get("status", 200)),
         )
 
-    for page in PAGES:
+    for page in all_pages():
         def endpoint(request: Request, _page: dict[str, Any] = page) -> HTMLResponse:
             return render(_page, request)
 
@@ -343,16 +379,8 @@ def build_portal_router(portal_base: str) -> APIRouter:
             "detail": page.get("detail", ""),
         }
 
-    @router.get("/", include_in_schema=False, name="web_portal_home")
-    async def home(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request=request,
-            name="portal/home.html",
-            context=context(request, {"title": "首页", "path": "/", "page": "portal/home"}),
-        )
-
-    @router.get("/{path:path}", include_in_schema=False, name="web_portal_not_found")
-    async def not_found(request: Request, path: str) -> HTMLResponse:
+    def not_found_page(request: Request, path: str) -> HTMLResponse:
+        """前台统一的 HTML 404，未知路径与非数字 id 都走它，不落到 JSON 422。"""
         return templates.TemplateResponse(
             request=request,
             name="pages/error.html",
@@ -369,5 +397,39 @@ def build_portal_router(portal_base: str) -> APIRouter:
             ),
             status_code=404,
         )
+
+    @router.get("/", include_in_schema=False, name="web_portal_home")
+    async def home(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request=request,
+            name="portal/home.html",
+            context=context(request, {"title": "首页", "path": "/", "page": "portal/home"}),
+        )
+
+    # P2-10：前台真实示例页——公开内容（公告）列表与详情，消费匿名可读的已发布公告接口
+    @router.get("/content", include_in_schema=False, name="web_portal_content")
+    async def content_list(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request=request,
+            name="portal/content-list.html",
+            context=context(request, {"title": "公告", "path": "/content", "page": "portal/content-list"}),
+        )
+
+    @router.get("/content/{notice_id}", include_in_schema=False, name="web_portal_content_detail")
+    async def content_detail(request: Request, notice_id: str) -> HTMLResponse:
+        if not notice_id.isdigit():
+            return not_found_page(request, f"content/{notice_id}")
+        return templates.TemplateResponse(
+            request=request,
+            name="portal/content-detail.html",
+            context={
+                **context(request, {"title": "公告详情", "path": f"/content/{notice_id}", "page": "portal/content-detail"}),
+                "notice_id": int(notice_id),
+            },
+        )
+
+    @router.get("/{path:path}", include_in_schema=False, name="web_portal_not_found")
+    async def not_found(request: Request, path: str) -> HTMLResponse:
+        return not_found_page(request, path)
 
     return router

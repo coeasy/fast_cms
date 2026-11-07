@@ -70,6 +70,28 @@
 
 排查线上问题时优先记录 `request_id`，可直接关联服务端日志与操作日志。
 
+### 2.4 响应契约（`response_model`）
+
+每个操作都必须声明 `response_model`，形状统一为 `Envelope[...]`（定义在 `backend/app/core/envelope.py`）：
+
+| 场景 | 声明 |
+| --- | --- |
+| 单条资源 | `Envelope[UserOut]` |
+| 列表 | `Envelope[Page[UserOut]]` |
+| 游标分页（`keyset=true`） | `Envelope[KeysetPage[LoginLogOut]]` |
+| 只回计数 | `Envelope[CountResult]` / `Envelope[DeletedResult]` |
+| 批量操作 | `Envelope[BatchOutcome]` |
+| 无返回体（删除、标记已读） | `Envelope[None]` |
+| 文件流（CSV / zip / 图片） | `responses=CSV_RESPONSES` / `responses=BINARY_RESPONSES` |
+
+约定与理由：
+
+- 服务层仍返回 dict（由各模块的 `*_out()` 组装），FastAPI 在出站时按模型校验。结构漂移会变成明确的校验错误，而不是悄悄多一个字段、或把不可序列化的对象塞进 `data`——`/security/ip-locate` 曾把带 `bytes` 的内部 searcher 塞进去，归属地库一装好就 500。
+- **响应模型一律继承 `StrictModel`**（`extra="forbid"`）：服务层多吐了模型没声明的字段时，Pydantic 默认会**静默丢弃**（HTTP 200、无日志、前端拿到 undefined）。开启 `forbid` 后这类漂移在测试里直接失败。`Envelope`/`Page` 等信封结构保持宽松，它们由框架层构造。
+- `PermissionAPIRouter` 默认 `response_model_exclude_unset=True`：服务层按需省略的字段（`total=false` 时不带 `total`、列表不带 `script_code`）在响应里保持「不存在」，不会被补成 `null`。
+- 文件流端点没有 JSON 信封，但同样要声明 media type 与 binary schema，否则前端生成不出下载类型。
+- 契约检查会拒绝任何 200 响应缺少 schema 的操作（`scripts/check_contract.py::check_response_schemas`）；`tests/integration/test_response_contract.py` 再从运行期反查「响应字段是否都在模型里」，两个方向都堵住。
+
 ## 3. HTTP 状态码
 
 | 状态码 | 含义 | 典型场景 |
@@ -196,7 +218,7 @@ Cookie: fastcms_refresh=<token>
 
 | 前缀 | 范围 | 示例 |
 |---|---|---|
-| `AUTH_*` | 登录、令牌、会话、改密、限流 | `AUTH_INVALID_CREDENTIALS`、`AUTH_SESSION_EXPIRED`、`AUTH_PASSWORD_CHANGE_REQUIRED`、`AUTH_RATE_LIMITED`、`AUTH_REFRESH_REUSED` |
+| `AUTH_*` | 登录、令牌、会话、改密、限流、权限下线 | `AUTH_INVALID_CREDENTIALS`、`AUTH_SESSION_EXPIRED`、`AUTH_PASSWORD_CHANGE_REQUIRED`、`AUTH_RATE_LIMITED`、`AUTH_REFRESH_REUSED`、`AUTH_PERMISSION_SUNSET` |
 | `SYSTEM_*` | 用户、角色、菜单、部门、权限 | `SYSTEM_USER_NOT_FOUND`、`SYSTEM_USERNAME_EXISTS`、`SYSTEM_LAST_SUPERUSER`、`SYSTEM_ROLE_ESCALATION`、`SYSTEM_MENU_CYCLE` |
 | `CONFIG_*` | 字典与系统参数 | `CONFIG_DICT_EXISTS`、`CONFIG_NOT_FOUND`、`CONFIG_BUILTIN` |
 | `CONTENT_*` / `TOOL_FILE_*` | 公告与文件 | `CONTENT_NOTICE_NOT_FOUND`、`TOOL_FILE_EMPTY`、`TOOL_FILE_FORBIDDEN`、`TOOL_FILE_MISSING` |
@@ -210,6 +232,22 @@ Cookie: fastcms_refresh=<token>
 | `INTERNAL_ERROR` | 未处理异常 | `500`，不泄露堆栈 |
 
 前端应根据 `code` 做分支，不要依赖 `message` 文案（文案可能调整或国际化）。字段级表单错误可通过 `details[].field` 映射；前端 `fieldErrors()` 已封装该逻辑。
+
+### 7.1 文案的单一来源
+
+每个业务错误码的默认中文文案集中在 `backend/app/core/messages.py` 的 `MESSAGES` 表，`AppError` 只写错误码即可：
+
+```python
+raise AppError("SYSTEM_USER_NOT_FOUND")                     # 文案取自 MESSAGES
+raise AppError("IMPORT_TOO_MANY_ROWS", params={"max_rows": 500})  # 模板 + 实参
+```
+
+- `MESSAGES` 与 `ERROR_CODE_STATUS` **必须一一对应**：新增错误码时两张表都要登记，缺任何一边 `check_contract.py` 直接失败（文案缺失会让 `message` 在运行时退化成错误码本身，对用户毫无意义）；
+- 文案里可以写 `{name}` 占位符，调用方用 `params` 填充。**不允许位置占位符**（`{}` / `{0}`）：改顺序就静默错位；
+- 同一错误码在不同场景确实需要不同措辞时（如「登录日志不存在」与「操作日志不存在」共用 `AUDIT_LOG_NOT_FOUND`），把该码登记到 `CONTEXT_MESSAGES`，调用点可以继续传字面量 `message`；**未登记的码在调用点写死文案会被门禁拦下**，这样「新增文案散落硬编码」在机制上不可能发生；
+- 校验规则一共五条：表要补齐、不能有孤儿条目、占位符必须具名、模板化文案必须传 `params`、`params` 实参名要与占位符对齐。规则本身有单元测试（`backend/tests/unit/test_messages.py`），门禁脚本被改坏时测试会先失败。
+
+对外契约不变：`message` 仍是中文文案，`code` 仍是唯一可编程判断依据。
 
 ## 8. 文件、下载与导出
 
@@ -234,7 +272,12 @@ file=@report.pdf
 
 ### 8.3 CSV 导出
 
-`GET /api/v1/monitor/login-logs/export`、`/api/v1/monitor/operation-logs/export` 返回 CSV 流，同样不使用信封，且导出动作会写入操作审计。
+- 业务导出：`GET /api/v1/export/{users|roles|dicts|notices|job-logs}`（权限码 `system:{resource}:export` / `schedule:log:export`）；
+- 审计导出：`GET /api/v1/monitor/login-logs/export`、`/api/v1/monitor/operation-logs/export`；
+- 所有导出返回 CSV 流（`text/csv; charset=utf-8`，带 UTF-8 BOM），**不使用** JSON 信封，导出动作写入操作审计；
+- **行数上限单源**：`app/core/export.py` 的 `MAX_EXPORT_ROWS = 10000`，路由参数、服务常量、响应头与本文档引用同一来源；`limit` 查询参数 `1..MAX_EXPORT_ROWS`；
+- **截断语义**：导出按上限截断，并通过响应头显式回传——`X-Export-Rows`（实际导出行数）、`X-Export-Limit`（上限）、`X-Export-Truncated`（`1` 表示被截断，`0` 表示完整）；
+- **数据范围**：`users` 导出按当前用户数据范围裁剪（`apply_user_scope`）；`roles/dicts/notices/job-logs` 是系统全局资源，与列表接口一致地不裁剪，仅由权限码限制可见性（显式声明，见 `ops/export/service.py` 的 `scope_policy`）。
 
 前端使用 `getBlob()` / `download()` 处理二进制响应；当服务端因错误返回 JSON 时，这两个函数会解析信封并抛出 `ApiError`。
 
@@ -245,7 +288,7 @@ file=@report.pdf
 | 认证 | `/api/v1/auth` | 登录、刷新、退出、当前用户、个人资料、头像、会话 |
 | 系统 | `/api/v1/system` | 用户、角色、菜单、部门、权限查询 |
 | 字典/参数 | `/api/v1/system` | 字典类型/字典项、系统参数、公开配置 |
-| 内容 | `/api/v1/content` | 公告管理端（草稿/发布/下线）与用户端（已发布、未读数、已读） |
+| 内容 | `/api/v1/content` | 公告管理端（草稿/发布/下线）与用户端（已发布、未读数、已读）。`GET /content/notices/published` 与 `GET /content/notices/{id}/published` 为**匿名可读**（`optional_auth`，无 token 时 `read=false`），供前台 `/front/content` 站点消费；`read`/`unread-count` 等已读接口仍要求登录 |
 | 文件 | `/api/v1/tool/files` | 上传、列表、元数据、下载、删除 |
 | 审计 | `/api/v1/monitor` | 登录日志、操作日志、在线用户、服务器信息 |
 | 任务 | `/api/v1/schedule` | 任务 CRUD、暂停/恢复/触发、下次执行、执行日志 |
@@ -268,6 +311,7 @@ make contract-check # 重新导出并检查权限/菜单/页面/脚本一致性
 检查内容：
 
 - 每个操作都有唯一 `operationId`；
+- 每个操作的 200 响应都声明了 schema（`Envelope[...]` 或文件流的 binary schema），空 schema 直接判失败；
 - 受保护路由都声明 `x-permission` 且权限码已在基线注册；
 - 无未使用的注册权限码；
 - 菜单引用的权限码与页面脚本均存在（`bootstrap/menus.py` ↔ `app/web/router.py` 的 `PAGES` ↔ `static/js/pages/**`）；
@@ -280,7 +324,7 @@ make contract-check # 重新导出并检查权限/菜单/页面/脚本一致性
 - 例外只有两类：`/healthz`、`/readyz` 由探针调用，`POST /auth/refresh` 由请求层直接拼接；
 - 单条详情 GET（列表已回整行数据，页面不回查）列在 `REST_DETAIL_ENDPOINTS` 白名单里，脚本会同时校验这些端点仍存在于契约且被 `backend/tests` 请求过，白名单不能用来藏真正的孤儿接口。
 
-页面统一通过 `static/js/core.js` 的 `api.*` 发起请求（自动带 access token、401 时用 HttpOnly refresh cookie 换新 token 并重放原请求），不要在各页面里手写 `fetch`。
+页面统一通过 `static/js/core/request.js` 的 `api.*` 发起请求（自动带 access token、401 时用 HttpOnly refresh cookie 换新 token 并重放原请求），不要在各页面里手写 `fetch`。
 
 ## 11. 调用示例
 
@@ -303,12 +347,72 @@ curl -s 'http://localhost:8000/api/v1/system/users?page=1&page_size=10' \
 
 ## 12. 版本与兼容
 
+### 12.1 版本策略
+
 - 默认路径前缀 `/api/v1`，可用 `API_PREFIX` 换成其他前缀（不改变接口语义）；破坏性变更需新增 `/api/v2`；
 - 前缀改动会影响 refresh cookie 的 `Path`、审计日志路径与响应里的下载地址，前端需按 README「自定义 API 前缀与子路径部署」同步重建；
 - 允许的兼容变更：新增可选字段、新增接口、新增错误码、放宽校验；
 - 需要同步前端的变更：字段重命名/删除、必填性变化、枚举值语义变化、权限码调整；
-- 权限码属于公开契约，废弃时保留注册并标记 `deprecated_at`，不要直接复用旧码表示新语义；
-- 发布前执行 `make contract-check`、后端测试、前端类型检查与 E2E。
+- 权限码属于公开契约，废弃时保留注册并标记 `deprecated_at`，不要直接复用旧码表示新语义。
+
+### 12.2 废弃与下线（Deprecation / Sunset）
+
+接口与权限码的下线是**两段式**的：先标记废弃、继续服务一段时间，到期才真正拒绝。任何"今天还在用、明天就 404"的变更都不允许。
+
+**权限码废弃的完整生命周期**
+
+1. 从代码中移除权限码（`app/bootstrap/permissions.py` 基线表或模块 `module.py` 的增量声明）；
+2. 下次启动 seed 时，`_sync_permissions` 自动把数据库里已不存在于代码的权限码打上 `deprecated_at = now`——**无需手工改库**；
+3. 宽限期内（默认 180 天）持有该权限码的角色仍然能访问对应接口，但每个响应都带：
+   ```http
+   Deprecation: true
+   Sunset: Sat, 25 Apr 2027 00:00:00 GMT
+   ```
+   `Sunset` 是 RFC 8594 定义的 HTTP-date（始终 GMT），指向宽限期结束的绝对时刻；
+4. 超过 `Sunset` 后再访问，返回 `403 AUTH_PERMISSION_SUNSET`，`message` 为「权限 {code} 已停止服务」；
+5. 权限码若被重新加回代码，seed 会把 `deprecated_at` 清空，接口恢复正常——即"撤回废弃"是允许的。
+
+宽限期内 `/auth/me` 的 `permissions` **仍然包含**该权限码，菜单树与 `data-perm` 按钮照常显示。这一点是刻意的：废弃只应该影响"要不要提醒迁移"，不应该让界面在第一天就静默少掉入口——否则宽限期对 Web 用户等于不存在。到期后该码才会从 `permissions` 与菜单里消失，接口同时返回 `AUTH_PERMISSION_SUNSET`。
+
+宽限期长度由 `PERMISSION_DEPRECATION_GRACE_DAYS`（默认 `180`）控制。它与"上线时间"无关，只从 `deprecated_at` 起算，所以缩短该值会让**所有**处于废弃状态的权限码一起提前到期，改之前先确认线上是否还有客户端在依赖。
+
+客户端处理约定：
+
+- 收到 `Deprecation: true` 视为**警告**，请求本身已成功，不要重试、不要报错，只在日志里记一条待迁移；
+- 收到 `403 AUTH_PERMISSION_SUNSET` 视为**终态**，说明该能力已下线，应移除对应入口而不是重试；
+- 响应头只在"用到了已废弃权限码"时出现；正常权限不会带这两个头，所以可以安全地用它做灰度观测。
+
+**为什么用响应头而不是错误码做废弃提示**：废弃是"还能用但要迁移"的状态，如果做成错误就会让旧客户端直接崩；放在响应头里，成功的响应不受影响，同时有 HTTP 语义（`Deprecation` 来自 RFC 9745、`Sunset` 来自 RFC 8594），网关和 SDK 能统一识别。
+
+### 12.3 兼容性自动判定
+
+`scripts/check_contract.py` 会把当前 `openapi.json` 与基线 `openapi.baseline.json` 逐操作对比，把差异分成两类：
+
+| 分类 | 判定项 |
+|---|---|
+| 破坏性 | 删除端点、改 `operationId`、改 `x-permission`、删除参数、**新增必填参数**、删除响应码、删除 schema、删除字段、字段由可选变必填 |
+| 兼容 | 新增端点、新增可选参数、新增响应码、新增 schema、新增可选字段 |
+
+破坏性差异默认让门禁失败。确需合并时用显式开关放行，并在 PR 描述里写清迁移方案：
+
+```bash
+python scripts/check_contract.py --allow-breaking   # 承认破坏性变更并放行
+python scripts/check_contract.py --update-baseline  # 变更已发布，滚动基线
+```
+
+`--update-baseline` 只在**该变更已经真正对外发布**之后执行；提前滚基线等于把破坏性变更藏起来，下一次就没人能发现了。
+
+### 12.4 发布前门禁
+
+发布前执行 `make check`（= `scripts/gate.py all`，统一门禁：lint + test + contract + docs + security，与 CI / release 共用同一清单）。分组如下：
+
+- 后端：`ruff` + `mypy app` + `pytest`；
+- 前端：`node --test tests/frontend/*.test.mjs`（纯函数与状态渲染的单元测试）+ `scripts/check_frontend_imports.py`（导入解析 + `node --check` 语法）。前端为原生 ES Module、无 TypeScript，因此不存在 TS 类型检查这一步，以 Node 语法校验 + 导入解析替代；
+- 契约：`export-openapi` + `check-permissions` + `check_contract.py` + `check_api_coverage.py --strict` + `scripts/check_escape_sentinel.py`（扫描 `innerHTML` 模板里未经 `esc()` 的插值，防 XSS）；
+- 文档：`scripts/check_docs.py`（校验文档里出现的命令确实存在）；
+- 安全：依赖与密钥相关检查。
+
+E2E 冒烟为本地 `.scratch/` 人工自检，不进自动化门禁与发布包，按 [开发计划](开发计划.md) 第 10.2 节执行。
 
 ## 13. 常见问题
 
@@ -318,6 +422,8 @@ curl -s 'http://localhost:8000/api/v1/system/users?page=1&page_size=10' \
 | 登录返回 429 | 同一 IP 每分钟超过 30 次登录请求；等待后重试或排查代理 IP 配置 |
 | 业务接口 403 且 code 为 `AUTH_PASSWORD_CHANGE_REQUIRED` | 首次登录/重置密码后未改密；仅改密与个人中心接口可用 |
 | 403 `AUTH_FORBIDDEN` | 权限码未分配给角色、角色被禁用，或数据范围不包含目标资源 |
+| 403 `AUTH_PERMISSION_SUNSET` | 该权限码已过废弃宽限期（见 §12.2）；能力已下线，移除对应入口而非重试 |
+| 响应头出现 `Deprecation: true` | 当前身份持有的权限码已废弃但仍在宽限期内；请求成功，安排迁移即可 |
 | 422 且 `details` 为数组 | 请求字段校验失败；按 `details[].field` 定位 |
 | 下载得到 JSON | 服务端返回了错误信封；用 `getBlob()`/`download()` 解析并提示 |
 | 需要按业务字段排序 | 当前未提供通用排序参数，扩展对应服务层查询 |

@@ -4,9 +4,20 @@
    ========================================================================== */
 
 import {
-  $, api, applyTheme, brandGradient, esc, heroGradient, heroGlow,
-  DEFAULT_THEME, DEFAULT_THEME_CODE,
-} from '../core.js';
+  $,
+  esc
+} from '../core/base.js';
+import {
+  api
+} from '../core/request.js';
+import {
+  applyTheme,
+  brandGradient,
+  heroGradient,
+  heroGlow,
+  DEFAULT_THEME,
+  DEFAULT_THEME_CODE
+} from '../core/theme.js';
 
 export async function initPortal() {
   let config = DEFAULT_THEME;
@@ -28,7 +39,10 @@ export async function initPortal() {
   applyTheme(config, code);
 
   const title = String(publicConfig['system.title'] || 'Fast CMS');
-  const description = String(publicConfig['system.description'] || '');
+  // system.description 是新种子键；老库升级前回落到登录页描述，再回落到模板硬编码。
+  const description = String(
+    publicConfig['system.description'] || publicConfig['system.login_description'] || ''
+  );
   document.title = `${title} · 首页`;
 
   const titleNode = $('#portal-title');

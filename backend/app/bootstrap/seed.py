@@ -6,26 +6,25 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bootstrap.menus import MENU_TREE, iter_menus
+from app.bootstrap.menus import all_menu_tree, iter_menus
 from app.bootstrap.models import BootstrapVersion
-from app.bootstrap.permissions import ADMIN_PERMISSION, PERMISSION_CODES, PERMISSIONS, READ_ONLY_PERMISSIONS
+from app.bootstrap.permissions import (
+    ADMIN_PERMISSION,
+    READ_ONLY_PERMISSIONS,
+    all_permission_codes,
+    all_permissions,
+)
 from app.core.config import settings
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.core.tz import scheduler_timezone
 from app.db.base import utcnow
-from app.modules.config.models import DictItem, DictType, SystemConfig
-from app.modules.schedule.models import Job, JobTemplate
-from app.modules.system.models import Dept, Menu, Permission, Role, User
+from app.kernel.models import Dept, Menu, Permission, Role, User
+from app.modules.ops.schedule.models import Job, JobTemplate
+from app.modules.sys.config.models import DictItem, DictType, SystemConfig
 from app.modules.theme.models import ThemeTemplate
 from app.modules.theme.presets import BUILTIN_THEMES, DEFAULT_THEME_CODE
 
 logger = logging.getLogger("fastcms.bootstrap")
-
-# 种子版本号是「内置数据是否需要重新播种」的开关。
-# 改了 MENU_TREE / PERMISSIONS / DEFAULT_* 这些内置声明后必须递增它：
-# 版本一致时 _ensure_seed() 只补权限码、不碰菜单（避免覆盖管理员的自定义），
-# 新增的内置菜单就永远不会出现在侧边栏——入口存在但点不进去，是最难查的一种断链。
-SEED_VERSION = "1.8.0"
 
 DEFAULT_DEPTS = [
     {"name": "总部", "leader": "系统管理员", "sort": 1},
@@ -156,6 +155,15 @@ DICT_TYPES: list[dict[str, Any]] = [
 SYSTEM_CONFIGS: list[dict[str, Any]] = [
     {"key": "system.title", "name": "系统名称", "value": "Fast CMS 管理后台", "group": "basic", "is_public": True},
     {"key": "system.short_title", "name": "系统简称", "value": "Fast CMS", "group": "basic", "is_public": True},
+    # 前台首页 hero 标题读这个键；此前 portal.js 读 system.description 而库里
+    # 根本没有，配置项改了不生效、hero 永远退回模板硬编码文案。
+    {
+        "key": "system.description",
+        "name": "站点简介",
+        "value": "轻量、可靠的一体化后台管理系统",
+        "group": "basic",
+        "is_public": True,
+    },
     {"key": "system.copyright", "name": "版权信息", "value": "© 2026 Fast CMS", "group": "basic", "is_public": True},
     {
         "key": "system.login_description",
@@ -197,7 +205,7 @@ BUILTIN_JOB_TEMPLATES: list[dict[str, Any]] = [
         "description": "内置清理任务模板，可调整保留天数后创建",
         "job_type": "registry",
         "handler_code": "system.cleanup_sessions",
-        "args_json": {"days": settings.session_retention_days},
+        "args_json": {"days": settings.retention_days},
         "trigger_type": "cron",
         "cron_expr": "0 3 * * *",
         "timeout_seconds": 300,
@@ -208,7 +216,7 @@ BUILTIN_JOB_TEMPLATES: list[dict[str, Any]] = [
         "description": "内置日志清理任务模板，可调整保留天数后创建",
         "job_type": "registry",
         "handler_code": "system.cleanup_logs",
-        "args_json": {"days": settings.log_retention_days},
+        "args_json": {"days": settings.retention_days},
         "trigger_type": "cron",
         "cron_expr": "10 3 * * *",
         "timeout_seconds": 600,
@@ -254,6 +262,17 @@ BUILTIN_JOB_TEMPLATES: list[dict[str, Any]] = [
         "interval_seconds": 60,
         "timeout_seconds": 120,
     },
+    {
+        "code": "preset.event_outbox_drain",
+        "name": "事件发件箱派发",
+        "description": "周期性派发事务性事件发件箱里的待投递事件",
+        "job_type": "registry",
+        "handler_code": "event.outbox_drain",
+        "args_json": {"limit": 100},
+        "trigger_type": "interval",
+        "interval_seconds": 30,
+        "timeout_seconds": 120,
+    },
 ]
 
 BUILTIN_JOBS: list[dict[str, Any]] = [
@@ -263,7 +282,7 @@ BUILTIN_JOBS: list[dict[str, Any]] = [
         "description": "每天凌晨清理超过保留天数且已过期的登录会话",
         "trigger_type": "cron",
         "cron_expr": "0 3 * * *",
-        "args_json": {"days": settings.session_retention_days},
+        "args_json": {"days": settings.retention_days},
         "status": "enabled",
         "timeout_seconds": 300,
     },
@@ -273,7 +292,7 @@ BUILTIN_JOBS: list[dict[str, Any]] = [
         "description": "每天凌晨清理登录、操作、任务与通知发送记录",
         "trigger_type": "cron",
         "cron_expr": "10 3 * * *",
-        "args_json": {"days": settings.log_retention_days},
+        "args_json": {"days": settings.retention_days},
         "status": "enabled",
         "timeout_seconds": 600,
     },
@@ -283,7 +302,7 @@ BUILTIN_JOBS: list[dict[str, Any]] = [
         "description": "每周清理未被引用的上传文件，默认暂停以免误删",
         "trigger_type": "cron",
         "cron_expr": "0 4 * * 0",
-        "args_json": {"days": settings.file_retention_days},
+        "args_json": {"days": settings.retention_days},
         "status": "paused",
         "timeout_seconds": 600,
     },
@@ -300,20 +319,73 @@ BUILTIN_JOBS: list[dict[str, Any]] = [
     {
         "code": "notify.dispatch",
         "name": "通知消息投递",
-        "description": "投递待发送的 IM 通知，配置好通知渠道后手动启用",
+        # 默认启用：投递失败会进入 pending 并带退避时间等待重试，而这个任务
+        # 是唯一消费 pending 的入口。默认暂停等于「首次投递失败就永远卡在
+        # pending」，用户只能到通知记录页手动点重试——一条隐性运维要求。
+        "description": "每分钟投递待发送的通知并重试失败记录；不需要时可暂停",
         "trigger_type": "interval",
         "interval_seconds": 60,
         "args_json": {"limit": 20},
-        "status": "paused",
+        "status": "enabled",
+        "timeout_seconds": 120,
+    },
+    {
+        "code": "event.outbox_drain",
+        "name": "事件发件箱派发",
+        # 默认启用：outbox 是唯一能让「事后通知」跨进程一致投递的入口。默认暂停
+        # 会让事件永远积压在发件箱，管理端能看到却无人消费——一条隐性运维要求。
+        "description": "每 30 秒派发事务性事件发件箱；多实例由分布式锁去重",
+        "trigger_type": "interval",
+        "interval_seconds": 30,
+        "args_json": {"limit": 100},
+        "status": "enabled",
         "timeout_seconds": 120,
     },
 ]
 
 
+# 种子版本是「内置数据是否需要重新播种」的开关。
+# 旧做法是手工递增的版本号（如 "1.8.0"），前提是「改了内置声明必须记得改版本」——
+# 忘了递增，新增的内置菜单就永远不出现：入口存在但点不进去，是最难查的一种断链。
+# 现在改为**内容指纹**（B-11 / Phase 12-2）：对全部内置声明的稳定 JSON 序列化做
+# sha256。改了任何一条声明，指纹自动变化、下次启动自动重播；没改就绝不重播。
+# 注意：管理员口令等运行时输入**不在**指纹里（它们不是种子声明）。
+def _seed_fingerprint() -> str:
+    import hashlib
+    import json
+
+    material = json.dumps(
+        {
+            "menus": all_menu_tree(),
+            "permissions": all_permissions(),
+            "dict_types": DICT_TYPES,
+            "system_configs": SYSTEM_CONFIGS,
+            "default_depts": DEFAULT_DEPTS,
+            "themes": BUILTIN_THEMES,
+            "job_templates": BUILTIN_JOB_TEMPLATES,
+            "jobs": BUILTIN_JOBS,
+            # 内置角色的授权也是种子声明：审计员只读集合变化时必须重播，
+            # 否则旧库的 auditor 权限停在上一版声明（B-11 的盲区）。
+            "role_grants": {
+                "super_admin": sorted(all_permission_codes()),
+                "auditor": sorted(READ_ONLY_PERMISSIONS | {ADMIN_PERMISSION}),
+            },
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return "fp-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+SEED_VERSION = _seed_fingerprint()
+
+
 async def _sync_permissions(db: AsyncSession) -> dict[str, Permission]:
     existing = {item.code: item for item in (await db.execute(select(Permission))).scalars()}
     now = utcnow()
-    for item in PERMISSIONS:
+    # 基线表 + 各模块 module.py 声明的增量权限码
+    for item in all_permissions():
         current = existing.get(item["code"])
         if current is None:
             current = Permission(code=item["code"], name=item["name"], module=item["module"], type="api")
@@ -324,7 +396,7 @@ async def _sync_permissions(db: AsyncSession) -> dict[str, Permission]:
             current.module = item["module"]
             current.deprecated_at = None
     for code, perm in existing.items():
-        if code not in PERMISSION_CODES and perm.deprecated_at is None:
+        if code not in all_permission_codes() and perm.deprecated_at is None:
             perm.deprecated_at = now
     await db.flush()
     return existing
@@ -333,7 +405,7 @@ async def _sync_permissions(db: AsyncSession) -> dict[str, Permission]:
 async def _sync_menus(db: AsyncSession) -> None:
     rows = (await db.execute(select(Menu))).scalars().all()
     existing = {item.path: item for item in rows if item.path}
-    flat = list(iter_menus(MENU_TREE))
+    flat = list(iter_menus(all_menu_tree()))
     for data, parent_path in flat:
         menu = existing.get(data["path"])
         if menu is None:
@@ -393,7 +465,7 @@ async def _seed_roles(db: AsyncSession, permissions: dict[str, Permission]) -> d
     super_role.status = "active"
     super_role.is_builtin = True
     super_role.data_scope = "all"
-    super_role.permissions = [permissions[code] for code in sorted(PERMISSION_CODES)]
+    super_role.permissions = [permissions[code] for code in sorted(all_permission_codes())]
 
     auditor = roles.get("auditor")
     if auditor is None:
@@ -419,10 +491,16 @@ async def _seed_admin(db: AsyncSession, dept: Dept, roles: dict[str, Role]) -> b
         if roles["super_admin"] not in admin.roles:
             admin.roles.append(roles["super_admin"])
         return False
+    try:
+        password_hash = await hash_password_async(settings.admin_password)
+    except ValueError as exc:
+        # server 启动路径（uvicorn app.main:app）不会走 cli 的 _require_admin_password，
+        # 这里把裸 ValueError 换成带操作提示的 RuntimeError，让启动失败可读可操作。
+        raise RuntimeError(str(exc)) from exc
     admin = User(
         username="admin",
         username_normalized="admin",
-        password_hash=hash_password(settings.admin_password),
+        password_hash=password_hash,
         nickname="系统管理员",
         dept_id=dept.id,
         status="active",
@@ -546,6 +624,15 @@ async def _seed_jobs(db: AsyncSession) -> None:
             job.name = item["name"]
             job.description = item["description"]
             job.is_builtin = True
+            # 内置任务的「调度定义」跟随代码：触发器/周期/参数/超时改版后，
+            # 指纹变化触发重播，旧库也要跟着升级。status（启停）是运维状态，
+            # 保留管理员手动开/关，避免重播把用户显式启用的任务又停掉。
+            job.trigger_type = item["trigger_type"]
+            job.cron_expr = item.get("cron_expr")
+            job.interval_seconds = item.get("interval_seconds")
+            job.args_json = item["args_json"]
+            job.timeout_seconds = item["timeout_seconds"]
+            job.timezone = scheduler_timezone()
     await db.flush()
 
 
@@ -557,7 +644,7 @@ async def sync_permission_codes(db: AsyncSession) -> None:
     if super_role is not None:
         # 只做增量补齐：新增权限码要能立即用，但绝不删减超级管理员已有授权
         granted = {item.code for item in super_role.permissions}
-        missing = [permissions[code] for code in sorted(PERMISSION_CODES - granted) if code in permissions]
+        missing = [permissions[code] for code in sorted(all_permission_codes() - granted) if code in permissions]
         if missing:
             super_role.permissions = [*super_role.permissions, *missing]
     await db.commit()
@@ -586,6 +673,9 @@ async def seed_database(db: AsyncSession) -> bool:
     if version is None:
         db.add(BootstrapVersion(key="seed", version=SEED_VERSION))
     else:
+        if version.version != SEED_VERSION:
+            # B-11：版本变化要有日志——旧库从哪个指纹播到哪个指纹，一眼可查
+            logger.info("seed fingerprint changed: %s -> %s，重播内置数据", version.version, SEED_VERSION)
         version.version = SEED_VERSION
     await db.commit()
 

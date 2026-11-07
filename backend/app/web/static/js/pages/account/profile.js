@@ -1,7 +1,31 @@
 import {
-  $, api, confirmDialog, esc, fillForm, formatTime, getBlob, serializeForm, setLoading,
-  state, toast, validateForm,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  state
+} from '../../core/session.js';
+import {
+  confirmDialog,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  getBlob
+} from '../../core/request.js';
+import {
+  fillForm,
+  serializeForm,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  renderState
+} from '../../core/other.js';
+import { msg } from '../../core/messages.js';
 
 export async function init() {
   renderAccount();
@@ -71,7 +95,7 @@ async function submitProfile(event) {
     const user = await api.put('/auth/profile', values);
     state.user = user;
     state.me.user = user;
-    toast('资料已保存', 'success');
+    toast(msg('profile.saved'), 'success');
     renderAccount();
     renderAvatar();
   } catch {
@@ -85,7 +109,7 @@ async function uploadAvatar(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) {
-    toast('头像大小不能超过 2 MB', 'warning');
+    toast(msg('profile.avatarTooLarge'), 'warning');
     event.target.value = '';
     return;
   }
@@ -97,7 +121,7 @@ async function uploadAvatar(event) {
     const user = await api.upload('/auth/avatar', form);
     state.user = user;
     state.me.user = user;
-    toast('头像已更新', 'success');
+    toast(msg('profile.avatarUpdated'), 'success');
     await renderAvatar();
   } catch {
     /* 请求层已提示 */
@@ -112,7 +136,7 @@ async function loadSessions() {
   try {
     const sessions = await api.get('/auth/sessions');
     if (!sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="4"><div class="table-empty">暂无登录设备</div></td></tr>';
+      renderState(tbody, { state: 'empty', emptyText: '暂无登录设备', colspan: 4 });
       return;
     }
     tbody.innerHTML = sessions
@@ -130,7 +154,7 @@ async function loadSessions() {
       )
       .join('');
   } catch (error) {
-    tbody.innerHTML = `<tr><td colspan="4"><div class="table-empty">${esc(error?.message || '加载失败')}</div></td></tr>`;
+    renderState(tbody, { state: 'error', message: error?.message, colspan: 4 });
   }
 }
 
@@ -156,7 +180,7 @@ async function revokeOne(event) {
   if (!ok) return;
   try {
     await api.del(`/auth/sessions/${encodeURIComponent(sessionId)}`);
-    toast('该设备已下线', 'success');
+    toast(msg('profile.deviceKicked'), 'success');
     await loadSessions();
   } catch {
     /* 请求层已提示 */

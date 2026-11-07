@@ -1,7 +1,29 @@
-import { $, api, esc, formatMs, formatRecentTime, formatTime, statusTag, STATUS_MAP } from '../core.js';
-import { emptyRow } from '../core.js';
+import {
+  $,
+  esc
+} from '../core/base.js';
+import {
+  api
+} from '../core/request.js';
+import {
+  formatRecentTime,
+  formatTime
+} from '../core/time.js';
+import {
+  formatMs,
+  formatNumber
+} from '../core/format.js';
+import {
+  statusTag,
+  STATUS_MAP,
+  emptyRow,
+  renderState
+} from '../core/other.js';
 
 let timer = 0;
+// 是否成功渲染过一次。首次加载失败必须切到错误态：否则页面只剩「-」和空表，
+// 用户会以为系统里本来就没数据，而不是「这次没取到」。
+let loaded = false;
 
 export async function init() {
   $('#refresh')?.addEventListener('click', () => load(true));
@@ -21,8 +43,22 @@ async function load(manual = false) {
     renderTrend(data?.login_trend || []);
     renderLogins(data?.recent_logins || []);
     renderJobs(data?.recent_job_logs || []);
+    loaded = true;
   } catch (error) {
     if (manual) console.warn(error);
+    if (!loaded) {
+      renderState($('#trend-chart'), { state: 'error', message: '登录趋势加载失败，请刷新重试' });
+      renderState($('#recent-logins'), {
+        state: 'error',
+        message: '最近登录加载失败，请刷新重试',
+        colspan: 4,
+      });
+      renderState($('#recent-jobs'), {
+        state: 'error',
+        message: '任务记录加载失败，请刷新重试',
+        colspan: 4,
+      });
+    }
   } finally {
     button?.classList.remove('loading');
   }
@@ -41,7 +77,14 @@ function renderStats(stats) {
   };
   Object.entries(map).forEach(([key, value]) => {
     const node = document.querySelector(`[data-stat="${key}"]`);
-    if (node) node.textContent = value === undefined || value === null ? '0' : String(value);
+    if (!node) return;
+    // 统计值动辄五位数，不加千分位在卡片里很难一眼读出量级
+    node.textContent =
+      value === undefined || value === null
+        ? '0'
+        : typeof value === 'number'
+          ? formatNumber(value)
+          : String(value);
   });
 }
 
@@ -49,7 +92,7 @@ function renderTrend(trend) {
   const host = $('#trend-chart');
   if (!host) return;
   if (!trend.length) {
-    host.innerHTML = '<div class="table-empty"><div class="big">∅</div>暂无登录数据</div>';
+    renderState(host, { state: 'empty', emptyText: '暂无登录数据' });
     return;
   }
   const max = Math.max(1, ...trend.map((item) => item.success + item.failure));
@@ -58,13 +101,13 @@ function renderTrend(trend) {
       const success = Math.round((item.success / max) * 168);
       const failure = Math.round((item.failure / max) * 168);
       return `<div class="group">
-        <span class="bar" style="height:${success <= 0 ? 2 : Math.max(4, success)}px;background:var(--success)" title="成功 ${item.success}"></span>
-        <span class="bar" style="height:${failure <= 0 ? 2 : Math.max(4, failure)}px;background:var(--danger)" title="失败 ${item.failure}"></span>
+        <span class="bar" style="height:${success <= 0 ? 2 : Math.max(4, success)}px;background:var(--success)" title="成功 ${esc(item.success)}"></span>
+        <span class="bar" style="height:${failure <= 0 ? 2 : Math.max(4, failure)}px;background:var(--danger)" title="失败 ${esc(item.failure)}"></span>
       </div>`;
     })
     .join('');
   const labels = trend
-    .map((item) => `<div class="lbl">${esc(String(item.date).slice(5))}<b>${item.success + item.failure}</b></div>`)
+    .map((item) => `<div class="lbl">${esc(String(item.date).slice(5))}<b>${esc(item.success + item.failure)}</b></div>`)
     .join('');
   host.innerHTML = `
     <div style="position:relative">

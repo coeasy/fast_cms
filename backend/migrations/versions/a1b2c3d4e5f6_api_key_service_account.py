@@ -1,7 +1,7 @@
 """api key service account binding
 
 Revision ID: a1b2c3d4e5f6
-Revises: 583727afcb2f
+Revises: d4e5f6a7b8c9
 Create Date: 2026-10-22 08:10:00.000000
 
 API Key 需要一个可归属的用户行：数据范围、审计署名、封禁都建立在

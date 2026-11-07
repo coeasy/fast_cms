@@ -4,8 +4,8 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import _seed_configs, _seed_dicts, _seed_themes, _sync_menus, sync_permission_codes
 from app.db.session import session_scope
-from app.modules.config.models import DictItem, DictType, SystemConfig
-from app.modules.system.models import Menu, Permission, Role
+from app.kernel.models import Menu, Permission, Role
+from app.modules.sys.config.models import DictItem, DictType, SystemConfig
 from app.modules.theme.models import ThemeTemplate
 
 RETIRED_PATH = "/legacy-retired-page"

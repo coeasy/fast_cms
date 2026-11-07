@@ -26,13 +26,14 @@ RUN pip install -e /app/backend \
 COPY docker/entrypoint.sh /usr/local/bin/fastcms-entrypoint
 RUN chmod +x /usr/local/bin/fastcms-entrypoint
 
+# DB_URL / STORAGE_LOCAL_DIR 不在这里固定：留空由 config.py 从 DATA_DIR 推导，
+# 只改 DATA_DIR 就能整套搬迁（库、上传、密钥、备份、锁），与裸机行为一致。
 ENV APP_ENV=production \
     APP_HOST=0.0.0.0 \
     APP_PORT=8000 \
+    APP_DOCS_ENABLED=false \
     ADMIN_BASE=/admin \
     PORTAL_BASE=/front \
-    DB_URL=sqlite+aiosqlite:////app/backend/data/fastcms.db \
-    STORAGE_LOCAL_DIR=/app/backend/data/uploads \
     AUTO_MIGRATE=true
 
 USER fastcms

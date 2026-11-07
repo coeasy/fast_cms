@@ -99,26 +99,29 @@
 {# columns 用 [('标题', '150px'), '操作', ...]：元组第二位是列宽，字符串表示自适应
    selectable=True 时在最前面插入一列复选框，配合 ui.js 的 DataTable.selectable；
    empty 非空时在 tbody 里先放一行占位，供「选中左侧条目才加载」这类页面使用 #}
-{% macro data_table(columns, tbody_id=None, compact=False, empty=None, selectable=False) -%}
+{% macro data_table(columns, tbody_id=None, compact=False, empty=None, selectable=False, caption=None) -%}
 <div class="table-wrap">
   <table class="data{% if compact %} compact{% endif %}">
+    {%- if caption %}
+    <caption class="sr-only">{{ caption }}</caption>
+    {%- endif %}
     <thead>
       <tr>
         {%- if selectable %}
-        <th class="checkbox-cell"><input type="checkbox" id="check-all" aria-label="全选当前页"></th>
+        <th class="checkbox-cell" scope="col"><input type="checkbox" id="check-all" aria-label="全选当前页"></th>
         {%- endif %}
         {% for col in columns -%}
           {%- if col is string -%}
-        <th>{{ col }}</th>
+        <th scope="col">{{ col }}</th>
           {%- else -%}
-        <th{% if col | length > 1 and col[1] %} style="width:{{ col[1] }}"{% endif %}>{{ col[0] }}</th>
+        <th scope="col"{% if col | length > 1 and col[1] %} style="width:{{ col[1] }}"{% endif %}>{{ col[0] }}</th>
           {%- endif -%}
         {%- endfor %}
       </tr>
     </thead>
     <tbody{% if tbody_id %} id="{{ tbody_id }}"{% endif %}>
       {%- if empty %}
-      <tr><td colspan="{{ (columns | length) + (1 if selectable else 0) }}"><div class="table-empty">{{ empty }}</div></td></tr>
+      <tr><td colspan="{{ (columns | length) + (1 if selectable else 0) }}"><div class="table-empty" role="status">{{ empty }}</div></td></tr>
       {%- endif %}
     </tbody>
   </table>
@@ -145,10 +148,6 @@
 {%- endmacro %}
 
 {# 空表占位行：JS 侧 table-empty 由 emptyRow() 生成，这里只给首屏占位用 #}
-{% macro empty_row(text, colspan=1) -%}
-<tr><td colspan="{{ colspan }}"><div class="table-empty">{{ text }}</div></td></tr>
-{%- endmacro %}
-
 {# ------------------------------- 表单控件 ------------------------------- #}
 
 {# 所有字段共用同一个外壳：span 控制栅格宽度，hidden 首屏隐藏，
@@ -256,7 +255,7 @@
                submit_id=None, submit_class='btn-primary', submit_type='submit',
                cancel_label='取消', perm=None, attrs=None, novalidate=True) -%}
 <div class="mask" id="{{ id }}" hidden>
-  <div class="modal{% if size %} {{ size }}{% endif %}">
+  <div class="modal{% if size %} {{ size }}{% endif %}" role="dialog" aria-modal="true" aria-labelledby="{{ id }}-title">
     {% if form_id %}<form id="{{ form_id }}"{% if novalidate %} novalidate{% endif %}{% if attrs %} {{ attrs | safe }}{% endif %}>{% endif %}
     <div class="modal-head">
       <span id="{{ id }}-title">{{ title }}</span>
@@ -278,14 +277,6 @@
 
 {# ------------------------------- 展示 ------------------------------- #}
 
-{% macro tag(text, color=None) -%}
-<span class="tag{% if color %} {{ color }}{% endif %}">{{ text }}</span>
-{%- endmacro %}
-
-{% macro desc_item(key, value) -%}
-<div class="desc-item"><div class="k">{{ key }}</div><div class="v">{{ value }}</div></div>
-{%- endmacro %}
-
 {# ------------------------------ 文件导入 ------------------------------ #}
 
 {# CSV 导入弹层。hint 用来写「支持哪些列」的说明，页面脚本在提交时把
@@ -293,7 +284,7 @@
 {% macro import_modal(id, title, hint=None, form_id=None, input_id='import-file',
                       submit_id='import-submit', perm=None, dry_id='import-dry') -%}
 <div class="mask" id="{{ id }}" hidden>
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="{{ id }}-title">
     <form id="{{ form_id or id ~ '-form' }}" novalidate>
       <div class="modal-head">
         <span id="{{ id }}-title">{{ title }}</span>
@@ -329,8 +320,4 @@
   </div>
   <span class="ico" style="color:{{ color }};background:{{ weak }}">{{ icon(icon_name, 19) }}</span>
 </div>
-{%- endmacro %}
-
-{% macro loading(text='加载中...') -%}
-<div class="loading-block"><span class="spinner"></span>{% if text %}<span>{{ text }}</span>{% endif %}</div>
 {%- endmacro %}

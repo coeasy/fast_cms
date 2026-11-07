@@ -4,17 +4,15 @@ import json
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authz import AuthContext
 from app.core.cache import get_cache
-from app.core.config import api_path
 from app.core.errors import AppError
 from app.core.serializers import iso
-from app.modules.audit.models import OperationLog
-from app.modules.config.models import SystemConfig
-from app.modules.config.service import PUBLIC_CONFIG_KEY
+from app.kernel.db import commit, log_operation
+from app.modules.sys.config.models import SystemConfig
+from app.modules.sys.config.service import PUBLIC_CONFIG_KEY
 from app.modules.theme.models import ThemeTemplate
 from app.modules.theme.presets import DEFAULT_THEME_CODE
 from app.modules.theme.schemas import ThemeConfig, ThemeCreate, ThemeUpdate
@@ -22,7 +20,13 @@ from app.modules.theme.schemas import ThemeConfig, ThemeCreate, ThemeUpdate
 ACTIVE_THEME_KEY = "system.theme"
 
 
-def theme_out(item: ThemeTemplate) -> dict[str, Any]:
+def theme_out(item: ThemeTemplate, active_code: str | None = None) -> dict[str, Any]:
+    """投影主题。``is_active`` 必须随列表一起回：前端 ``theme.js`` 靠它定位当前主题。
+
+    此前 ThemeOut 没这个字段、服务层也没产出，前端 ``find(i => i.is_active)`` 恒为
+    undefined，只能靠再请求一次 ``/system/themes/public`` 兜底——是一次无谓的往返，
+    也是「前端读了后端根本不存在的字段」的静默断链。
+    """
     return {
         "id": item.id,
         "code": item.code,
@@ -30,6 +34,7 @@ def theme_out(item: ThemeTemplate) -> dict[str, Any]:
         "description": item.description,
         "config": item.config or {},
         "is_builtin": item.is_builtin,
+        "is_active": active_code is not None and item.code == active_code,
         "sort": item.sort,
         "created_at": iso(item.created_at),
         "updated_at": iso(item.updated_at),
@@ -43,54 +48,49 @@ async def _active_code(db: AsyncSession) -> str:
     return config.value if config and config.value else DEFAULT_THEME_CODE
 
 
+async def _out(db: AsyncSession, item: ThemeTemplate) -> dict[str, Any]:
+    """单条响应也带 is_active，避免详情/创建/启用与列表口径不一致。"""
+    return theme_out(item, await _active_code(db))
+
+
 async def list_themes(db: AsyncSession) -> list[dict[str, Any]]:
     items = (
         (await db.execute(select(ThemeTemplate).order_by(ThemeTemplate.sort, ThemeTemplate.id)))
         .scalars()
         .all()
     )
-    return [theme_out(item) for item in items]
+    active_code = await _active_code(db)
+    if items and not any(item.code == active_code for item in items):
+        # 配置指向的主题已被删掉时与 public_theme 保持同一回退口径
+        active_code = items[0].code
+    return [theme_out(item, active_code) for item in items]
 
 
 async def public_theme(db: AsyncSession) -> dict[str, Any]:
     items = await list_themes(db)
-    active_code = await _active_code(db)
-    active = next((item for item in items if item["code"] == active_code), None)
-    if active is None and items:
-        active = items[0]
+    active = next((item for item in items if item["is_active"]), None)
     return {"active": active, "items": items}
 
 
 async def get_theme(db: AsyncSession, theme_id: int) -> dict[str, Any]:
     item = await db.get(ThemeTemplate, theme_id)
     if item is None:
-        raise AppError("THEME_NOT_FOUND", "主题模板不存在", 404)
-    return theme_out(item)
+        raise AppError("THEME_NOT_FOUND", status_code=404)
+    return await _out(db, item)
 
 
-def _log(db: AsyncSession, ctx: AuthContext, action: str, theme: ThemeTemplate) -> None:
-    db.add(
-        OperationLog(
-            user_id=ctx.user.id,
-            username=ctx.user.username,
-            module="theme",
-            action=action,
-            method="POST",
-            path=api_path(f"/system/themes/{theme.id}"),
-            status_code=200,
-            success=True,
-            duration_ms=0,
-            detail=json.dumps({"code": theme.code, "name": theme.name}, ensure_ascii=False),
-        )
+async def _log(db: AsyncSession, ctx: AuthContext, action: str, theme: ThemeTemplate) -> None:
+    # B-1 ④：统一走 kernel.db.log_operation，删除本地重复的 OperationLog 写入，
+    # 并获得真实 duration_ms（由请求上下文推导）。
+    await log_operation(
+        db,
+        ctx,
+        module="theme",
+        action=action,
+        method="POST",
+        path=f"/system/themes/{theme.id}",
+        detail=json.dumps({"code": theme.code, "name": theme.name}, ensure_ascii=False),
     )
-
-
-async def _commit(db: AsyncSession) -> None:
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise AppError("THEME_CODE_EXISTS", "主题编码已存在", 409) from exc
 
 
 async def create_theme(db: AsyncSession, ctx: AuthContext, data: ThemeCreate) -> dict[str, Any]:
@@ -98,7 +98,7 @@ async def create_theme(db: AsyncSession, ctx: AuthContext, data: ThemeCreate) ->
         await db.execute(select(ThemeTemplate.id).where(ThemeTemplate.code == data.code))
     ).scalar_one_or_none()
     if exists:
-        raise AppError("THEME_CODE_EXISTS", "主题编码已存在", 409)
+        raise AppError("THEME_CODE_EXISTS", status_code=409)
     item = ThemeTemplate(
         code=data.code,
         name=data.name,
@@ -109,10 +109,10 @@ async def create_theme(db: AsyncSession, ctx: AuthContext, data: ThemeCreate) ->
     )
     db.add(item)
     await db.flush()
-    _log(db, ctx, "创建主题模板", item)
-    await _commit(db)
+    await _log(db, ctx, "创建主题模板", item)
+    await commit(db, conflict_code="THEME_CODE_EXISTS")
     await db.refresh(item)
-    return theme_out(item)
+    return await _out(db, item)
 
 
 async def update_theme(
@@ -120,7 +120,7 @@ async def update_theme(
 ) -> dict[str, Any]:
     item = await db.get(ThemeTemplate, theme_id)
     if item is None:
-        raise AppError("THEME_NOT_FOUND", "主题模板不存在", 404)
+        raise AppError("THEME_NOT_FOUND", status_code=404)
     if item.is_builtin:
         raise AppError("THEME_BUILTIN", "内置主题不可修改，可复制为自定义主题", 409)
     payload = data.model_dump(exclude_unset=True)
@@ -128,29 +128,29 @@ async def update_theme(
         payload["config"] = ThemeConfig.model_validate(payload["config"]).model_dump(by_alias=True)
     for field, value in payload.items():
         setattr(item, field, value)
-    _log(db, ctx, "更新主题模板", item)
-    await _commit(db)
+    await _log(db, ctx, "更新主题模板", item)
+    await commit(db, conflict_code="THEME_CODE_EXISTS")
     await db.refresh(item)
-    return theme_out(item)
+    return await _out(db, item)
 
 
 async def delete_theme(db: AsyncSession, ctx: AuthContext, theme_id: int) -> None:
     item = await db.get(ThemeTemplate, theme_id)
     if item is None:
-        raise AppError("THEME_NOT_FOUND", "主题模板不存在", 404)
+        raise AppError("THEME_NOT_FOUND", status_code=404)
     if item.is_builtin:
         raise AppError("THEME_BUILTIN", "内置主题不可删除", 409)
     if item.code == await _active_code(db):
-        raise AppError("THEME_ACTIVE", "当前启用中的主题不可删除", 409)
-    _log(db, ctx, "删除主题模板", item)
+        raise AppError("THEME_ACTIVE", status_code=409)
+    await _log(db, ctx, "删除主题模板", item)
     await db.delete(item)
-    await db.commit()
+    await commit(db)
 
 
 async def activate_theme(db: AsyncSession, ctx: AuthContext, theme_id: int) -> dict[str, Any]:
     item = await db.get(ThemeTemplate, theme_id)
     if item is None:
-        raise AppError("THEME_NOT_FOUND", "主题模板不存在", 404)
+        raise AppError("THEME_NOT_FOUND", status_code=404)
     config = (
         await db.execute(select(SystemConfig).where(SystemConfig.key == ACTIVE_THEME_KEY))
     ).scalars().first()
@@ -167,7 +167,7 @@ async def activate_theme(db: AsyncSession, ctx: AuthContext, theme_id: int) -> d
         db.add(config)
     else:
         config.value = item.code
-    _log(db, ctx, "启用主题模板", item)
-    await db.commit()
+    await _log(db, ctx, "启用主题模板", item)
+    await commit(db)
     await get_cache().delete(PUBLIC_CONFIG_KEY)
-    return theme_out(item)
+    return await _out(db, item)

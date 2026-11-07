@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from sqlalchemy import delete, select
 
 from app.core.authz import DataScope
-from app.modules.audit.models import LoginLog
-from app.modules.audit.service import _restrict_to_scope
+from app.kernel.models import LoginLog
+from app.modules.ops.audit.service import _restrict_to_scope
 
 CTX = SimpleNamespace(is_superuser=False, user=SimpleNamespace(id=7))  # type: ignore[arg-type]
 SCOPE = DataScope(dept_ids={3})

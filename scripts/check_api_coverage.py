@@ -19,10 +19,19 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-API_PREFIX = "/api/v1"
+BACKEND = ROOT / "backend"
+sys.path.insert(0, str(BACKEND))
+
+# 前缀必须与后端配置同源：写死 /api/v1 时，改 API_PREFIX 后本检查与前缀相关的
+# 判定会和 check_contract 口径分裂（一个动态、一个写死）。
+from app.core.config import settings  # noqa: E402
+
+API_PREFIX = settings.api_prefix.rstrip("/")
 JS_DIR = ROOT / "backend/app/web/static/js"
 # 只有这些位置会出现真实调用：页面脚本 + 三套外壳。core.js 是请求封装本身，icons.js 无请求。
 CORPUS_FILES = (
@@ -31,7 +40,10 @@ CORPUS_FILES = (
     JS_DIR / "shell" / "auth.js",
     JS_DIR / "shell" / "portal.js",
 )
-CORPUS_DIRS = (JS_DIR / "pages",)
+# portal/ 是匿名前台页面（公告列表 / 公告正文），同样是真实调用方。
+# 漏掉它时，前台脚本里的接口调用既不算覆盖率语料，也没人检查响应形状——
+# 第 3 轮正是这里出现了「api.get 已解信封、页面又读一次 .data」的死链。
+CORPUS_DIRS = (JS_DIR / "pages", JS_DIR / "portal")
 
 # 运维探活端点由部署脚本/负载均衡调用，前端不应该访问
 OPS_ENDPOINTS = {"/healthz", "/readyz"}
@@ -74,6 +86,33 @@ CALL_RE = re.compile(
 )
 API_PATH_RE = re.compile(rf"\bapiPath\(\s*{QUOTE}(?P<path>{STRING_BODY}){CLOSE}")
 
+# Phase 10-1 之后，标准 CRUD 页面不再直接写 api.get/post/put/del，只向
+# createCrudPage 声明 `endpoint: '/xxx'`，四个方法由骨架在运行时拼接。
+# 静态分析追不到运行时拼接，所以按页面配置反推骨架会发出的调用：
+# - `endpoint` 本身 → GET 列表 + POST 创建（骨架的取数与提交都打这个前缀）；
+# - 配了 `form: {`（弹窗提交）→ 额外 PUT `endpoint/${id}`；
+# - 行内按钮含 `act: 'delete'` → 额外 DELETE `endpoint/${id}`。
+# 只读页（如封禁名单）两项都不配，因此不会误报它没调过的写接口。
+CRUD_OPTIONS_RE = re.compile(r"\bcreateCrudPage\s*\(")
+CRUD_ENDPOINT_RE = re.compile(rf"\bendpoint\s*:\s*{QUOTE}(?P<path>/[^'\"`]*){CLOSE}")
+CRUD_FORM_RE = re.compile(r"\bform\s*:\s*\{")
+CRUD_DELETE_RE = re.compile(r"act\s*:\s*['\"]delete['\"]")
+
+
+def _crud_options_texts(text: str) -> Iterator[str]:
+    """按括号配对截出每个 createCrudPage( ... ) 调用的实参全文。"""
+    for marker in CRUD_OPTIONS_RE.finditer(text):
+        start = text.index("(", marker.end() - 1)
+        depth = 0
+        for pos in range(start, len(text)):
+            if text[pos] == "(":
+                depth += 1
+            elif text[pos] == ")":
+                depth -= 1
+                if depth == 0:
+                    yield text[start : pos + 1]
+                    break
+
 
 def source_files() -> list[Path]:
     files = [path for path in CORPUS_FILES if path.exists()]
@@ -82,6 +121,25 @@ def source_files() -> list[Path]:
             continue
         files.extend(sorted(path for path in directory.rglob("*.js") if path.is_file()))
     return files
+
+
+# api.get/post/... 在 core/request.js 的 parseEnvelope 里已经返回 body.data，
+# 页面再读一次 .data 会永远拿到 undefined（列表恒空、详情恒「不存在」）。
+# 这类响应形状断链路径检查看不到，必须在源码层兜住。
+# `?.dataset.id` 不会命中：`\b` 要求 data 后面是单词边界，后面还有 set。
+DOUBLE_UNWRAP_RE = re.compile(r"\b(?:body|res|response|result|payload|json)\??\.data\b")
+ENVELOPE_LAYER = JS_DIR / "core" / "request.js"
+
+
+def check_envelope_unwrap() -> list[str]:
+    problems: list[str] = []
+    for path in sorted(JS_DIR.rglob("*.js")):
+        if path == ENVELOPE_LAYER:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if DOUBLE_UNWRAP_RE.search(line):
+                problems.append(f"{path.relative_to(ROOT).as_posix()}:{number}: {line.strip()}")
+    return problems
 
 
 def path_to_regex(call: str) -> re.Pattern[str] | None:
@@ -101,6 +159,15 @@ def extract_calls(text: str) -> set[tuple[str, str]]:
         calls.add((WRAPPERS[match.group("verb")], match.group("path")))
     for match in API_PATH_RE.finditer(text):
         calls.add(("*", match.group("path")))
+    for options in _crud_options_texts(text):
+        for match in CRUD_ENDPOINT_RE.finditer(options):
+            path = match.group("path").rstrip("/")
+            calls.add(("*", path))
+            # 删除按钮常写在文件内的 rowActions() 里（createCrudPage 约定
+            # act === 'delete' 一律路由到骨架的 page.remove），所以删除信号
+            # 要看整个文件而不只是 options 字面量。
+            if CRUD_FORM_RE.search(options) or CRUD_DELETE_RE.search(text):
+                calls.add(("*", path + "/${id}"))
     normalized: set[tuple[str, str]] = set()
     for method, raw in calls:
         if not raw.startswith("/"):
@@ -185,6 +252,7 @@ def main() -> int:
     dead_calls = sorted(set(dead_calls))
 
     whitelist_problems = check_whitelist(endpoints)
+    unwrap_problems = check_envelope_unwrap()
 
     print(f"openapi 端点：{len(endpoints)}，前端调用点：{len(regexes)}，语料文件：{len(files)}")
     print(f"未被前端调用的端点：{len(orphan_endpoints)}（另有 {whitelisted} 个单条详情 GET 走白名单）")
@@ -196,8 +264,11 @@ def main() -> int:
     print(f"白名单问题：{len(whitelist_problems)}")
     for item in whitelist_problems:
         print(f"  WHITELIST {item}")
+    print(f"信封重复解包：{len(unwrap_problems)}")
+    for item in unwrap_problems:
+        print(f"  DOUBLE_UNWRAP {item}")
 
-    if args.strict and (orphan_endpoints or dead_calls or whitelist_problems):
+    if args.strict and (orphan_endpoints or dead_calls or whitelist_problems or unwrap_problems):
         print("连通性检查未通过")
         return 1
     return 0

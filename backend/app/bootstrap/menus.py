@@ -4,7 +4,12 @@ from typing import Any
 
 from app.bootstrap.permissions import ADMIN_PERMISSION
 
-# component_key values map to lazily imported page modules in the frontend.
+# 菜单树的内置种子。约定：
+# - ``path`` 才是前端真正跳转的目标，必须与 app.web.router 的页面路径一一对应
+#   （scripts/check_contract.py 会成对校验，菜单点进去 404 或页面没入口都会失败）；
+# - ``component_key`` 是 sys_menu 的持久化字段，随接口下发给外部集成方使用。
+#   当前这套前端**不**依赖它：页面脚本由 body[data-page] 决定（见 static/js/app.js），
+#   所以改 component_key 不会影响本仓库的页面加载，不要误以为它是路由键。
 MENU_TREE: list[dict[str, Any]] = [
     {
         "name": "工作台",
@@ -58,6 +63,7 @@ MENU_TREE: list[dict[str, Any]] = [
             {"name": "服务器监控", "path": "/monitor/server", "component_key": "monitor/server", "permission_code": "monitor:server:read", "sort": 2},
             {"name": "登录日志", "path": "/monitor/login-log", "component_key": "monitor/login-log", "permission_code": "monitor:login-log:list", "sort": 3},
             {"name": "操作日志", "path": "/monitor/operation-log", "component_key": "monitor/operation-log", "permission_code": "monitor:operation-log:list", "sort": 4},
+            {"name": "事件投递日志", "path": "/monitor/event-log", "component_key": "monitor/event-log", "permission_code": "monitor:event-log:list", "sort": 5},
         ],
     },
     {
@@ -125,3 +131,28 @@ def iter_menus(nodes: list[dict[str, Any]], parent_path: str | None = None):
         children = data.pop("children", [])
         yield data, parent_path
         yield from iter_menus(children, data["path"])
+
+
+def all_menu_tree() -> list[dict[str, Any]]:
+    """存量 ``MENU_TREE`` + 各模块 ``module.py`` 声明的增量菜单。
+
+    与权限码同样的取舍：内置菜单树是「信息架构」，一个目录横跨多个模块，
+    留在本文件；新模块在自己的清单里声明一条顶层入口即可，不必改这里。
+
+    同路径以存量优先，防止模块声明意外覆盖内置菜单。延迟导入
+    ``app.core.module``：本模块在 ``bootstrap.seed`` 早期就被导入。
+    """
+    from app.core.module import module_menus
+
+    extra = module_menus()
+    if not extra:
+        return list(MENU_TREE)
+    known = {data["path"] for data, _parent in iter_menus(MENU_TREE)}
+    merged = list(MENU_TREE)
+    for item in extra:
+        path = item.get("path")
+        if not path or path in known:
+            continue
+        known.add(path)
+        merged.append(dict(item))
+    return merged

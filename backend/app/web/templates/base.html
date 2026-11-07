@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-dark="0" data-layout="mix">
+<html lang="zh-CN" data-dark="0" data-layout="mix" data-fixed-header="1" data-breadcrumb="1">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +7,7 @@
   <title>{% block title %}{{ page_title }} · {{ app_name }}{% endblock %}</title>
 
   {# 组件层：设计令牌 + 重置 + 通用组件，所有界面都加载 #}
-  <link rel="stylesheet" href="{{ base }}static/css/base.css">
+  <link rel="stylesheet" href="{{ base }}static/css/base.css?v={{ asset_v() }}">
   {# 骨架层：后台 / 前台 / 公共页面各自追加自己的样式表 #}
   {% block styles %}{% endblock %}
 
@@ -18,8 +18,7 @@
       "base": base,
       "apiBase": api_prefix,
       "portalBase": portal_base,
-      "page": page_path,
-      "version": app_version
+      "page": page_path
     } | tojson }}</script>
 </head>
 <body data-page="{{ page_key }}" data-title="{{ page_title }}">
@@ -27,6 +26,6 @@
 <noscript>
   <div style="padding:24px;text-align:center">本系统需要启用 JavaScript 才能使用。</div>
 </noscript>
-<script type="module" src="{{ base }}static/js/app.js"></script>
+<script type="module" src="{{ base }}static/js/app.js?v={{ asset_v() }}"></script>
 </body>
 </html>

@@ -108,7 +108,7 @@ def test_allowlist_and_mime_tables_stay_consistent() -> None:
     # 一个扩展名不能同时是「无签名文本」和「有签名的二进制」
     assert not (TEXT_EXTENSIONS & set(EXTENSION_MIMES))
     # 图片扩展名必须在 MIME 映射里，否则校验时无从比对
-    assert IMAGE_EXTENSIONS <= set(EXTENSION_MIMES)
+    assert set(EXTENSION_MIMES) >= IMAGE_EXTENSIONS
 
 
 @pytest.mark.parametrize(

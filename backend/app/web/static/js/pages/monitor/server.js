@@ -1,4 +1,20 @@
-import { $, api, esc, formatBytes, formatTime, formatUptime, toast } from '../../core.js';
+import {
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  formatBytes,
+  formatUptime
+} from '../../core/format.js';
 
 export async function init() {
   $('#btn-refresh')?.addEventListener('click', () => load());

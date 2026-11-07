@@ -9,7 +9,7 @@ import pytest
 
 from app.core.config import settings
 from app.core.errors import AppError
-from app.modules.notify import channels
+from app.modules.ops.notify import channels
 
 
 def test_mask_webhook_url_hides_token_query_and_long_segments() -> None:

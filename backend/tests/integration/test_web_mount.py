@@ -95,7 +95,8 @@ def test_admin_pages_mount_under_admin_base(client: TestClient) -> None:
     assert 'id="fastcms-config"' in body
     assert "/admin/static/js/app.js" in body
     # 首屏主题必须是外部脚本，内联脚本会让 CSP 失效
-    assert 'src="/admin/static/js/theme-boot.js"' in body
+    # 静态资源统一带 ?v= 版本号（见 tests/integration/test_static_assets.py）
+    assert 'src="/admin/static/js/theme-boot.js?v=' in body
     assert "<script>\n" not in body
     # 静态资源同源同端口
     assert client.get("/admin/static/css/base.css").status_code == 200
@@ -115,6 +116,22 @@ def test_admin_unknown_page_renders_html_404(client: TestClient) -> None:
     assert response.status_code == 404
     assert "text/html" in response.headers["content-type"]
     assert "页面不存在" in response.text
+
+
+def test_portal_content_pages_mount(client: TestClient) -> None:
+    """P2-10：前台公告列表/详情是真实示例页，走前台外壳、不引用后台资源。"""
+    for path in ("/front/content", "/front/content/1"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert "text/html" in response.headers["content-type"]
+        assert "static/css/portal.css" in response.text
+        assert "static/css/admin.css" not in response.text
+        assert "shell/admin.js" not in response.text
+    # 非数字 id 不匹配 int 转换器，落到前台 catch-all 的 HTML 404
+    assert client.get("/front/content/abc").status_code == 404
+    # 新页面脚本随包分发
+    assert (STATIC_DIR / "js" / "portal" / "content-list.js").is_file()
+    assert (STATIC_DIR / "js" / "portal" / "content-detail.js").is_file()
 
 
 def test_portal_mounts_under_portal_base(client: TestClient) -> None:

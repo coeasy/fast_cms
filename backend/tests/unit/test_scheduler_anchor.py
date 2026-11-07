@@ -12,8 +12,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.core.config import settings
 from app.core.tz import scheduler_timezone
 from app.db.base import utcnow
-from app.modules.schedule.models import Job
-from app.modules.schedule.scheduler import (
+from app.modules.ops.schedule.models import Job
+from app.modules.ops.schedule.scheduler import (
     SKIP_EVENT_MASK,
     SchedulerService,
     build_trigger,

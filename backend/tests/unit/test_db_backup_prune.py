@@ -14,7 +14,7 @@ def _make_backup(directory, name: str, age_seconds: float) -> None:
 
 
 def test_prune_backups_keeps_newest_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(migrate, "BACKUP_DIR", tmp_path)
+    monkeypatch.setattr(migrate, "backup_dir", lambda: tmp_path)
     _make_backup(tmp_path, "fastcms-20260101-000000.db", 400)
     _make_backup(tmp_path, "fastcms-20260101-000100.db", 300)
     _make_backup(tmp_path, "fastcms-20260101-000200.db", 200)
@@ -27,7 +27,7 @@ def test_prune_backups_keeps_newest_files(tmp_path, monkeypatch):
 
 
 def test_prune_backups_zero_keeps_all_and_ignores_other_stems(tmp_path, monkeypatch):
-    monkeypatch.setattr(migrate, "BACKUP_DIR", tmp_path)
+    monkeypatch.setattr(migrate, "backup_dir", lambda: tmp_path)
     _make_backup(tmp_path, "fastcms-20260101-000000.db", 200)
     _make_backup(tmp_path, "fastcms-20260101-000100.db", 100)
     _make_backup(tmp_path, "test_fastcms-20260101-000000.db", 100)

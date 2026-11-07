@@ -1,0 +1,42 @@
+"""{{ title }} 模块清单（由代码生成器生成，数据表 `{{ table }}`）。
+
+放进 ``app/modules/{{ module }}/`` 后由 ``app.core.module.discover_modules()``
+自动发现：路由按 ``order`` 注册、权限码并入种子、菜单与页面自动挂载，
+**不需要**再改 ``main.py`` / ``bootstrap/permissions.py`` / ``bootstrap/menus.py``
+/ ``web/router.py`` 任何一处。
+"""
+
+from __future__ import annotations
+
+from app.core.module import ModuleSpec
+from app.modules.{{ module }}.router import router
+
+MODULE = ModuleSpec(
+    name="{{ module }}",
+    order={{ module_order }},
+    description="{{ title }}（表 {{ table }}）",
+    routers=(router,),
+    permissions=(
+{% for action, label in permission_actions %}
+        {"code": "{{ permission_prefix }}:{{ action }}", "name": "{{ label }}{{ title }}", "module": "{{ module }}"},
+{% endfor %}
+    ),
+    menus=(
+        {
+            "name": "{{ title }}",
+            "path": "/{{ module }}/{{ resource }}",
+            "component_key": "{{ module }}/{{ resource }}",
+            "permission_code": "{{ permission_prefix }}:list",
+            "sort": {{ menu_sort }},
+        },
+    ),
+    pages=(
+        {
+            "path": "/{{ module }}/{{ resource }}",
+            "template": "pages/{{ module }}/{{ resource }}.html",
+            "title": "{{ title }}",
+            "subtitle": "{{ table }} 数据维护",
+            "page": "{{ module }}/{{ resource }}",
+        },
+    ),
+)

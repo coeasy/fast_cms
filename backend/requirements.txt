@@ -1,0 +1,48 @@
+# Fast CMS 运行时依赖
+#
+# 用途一（无虚拟环境，推荐给「直接在目标环境跑」的场景）：
+#     python -m pip install -r backend/requirements.txt
+#     cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+#
+# 用途二（有虚拟环境）：`pip install -e backend` 与本文件等价，二选一即可。
+#
+# 约束必须与 backend/pyproject.toml 的 [project].dependencies 逐项一致；
+# backend/tests/unit/test_requirements_sync.py 会做比对，只改一处会直接测试失败。
+
+# --- Web 框架与 ASGI 服务 ---
+fastapi>=0.136,<0.151
+uvicorn[standard]>=0.34,<0.55
+python-multipart>=0.0.18,<1      # 表单与文件上传；缺失时带 File() 的路由在导入阶段就报错
+
+# --- 数据层 ---
+sqlalchemy[asyncio]>=2.0,<2.2
+alembic>=1.14,<2
+aiosqlite>=0.20,<1
+aiomysql>=0.2,<1                 # 仅 DB_URL=mysql+aiomysql:// 时需要
+pymysql>=1.1,<2                  # scripts/mysql_smoke.py 同步连通性检查用，显式声明
+
+# --- 配置与校验 ---
+pydantic>=2.10,<3
+pydantic-settings>=2.7,<3
+
+# --- 调度 ---
+APScheduler>=3.10,<4
+
+# --- 认证与安全 ---
+PyJWT>=2.10,<3
+argon2-cffi>=23,<26
+
+# --- 缓存（可选） ---
+redis>=5,<9                      # 仅 REDIS_ENABLED=true 时被加载
+
+# --- 时区与系统信息 ---
+tzdata>=2024.1                   # Windows 与 slim 镜像没有系统时区库，缺了 ZoneInfo 会抛异常
+psutil>=6,<8
+
+# --- 页面渲染与通用工具 ---
+Jinja2>=3.1,<4
+filetype>=1.2,<2
+httpx>=0.28,<1
+
+# --- 离线 IP 归属地 ---
+py-ip2region>=3.0.6,<4           # xdb 数据文件随源码分发在 backend/app/ip_data/

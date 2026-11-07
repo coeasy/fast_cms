@@ -1,8 +1,29 @@
 import {
-  $, api, closeModal, confirmDialog, esc, formatTime, openModal,
-  serializeForm, setLoading, toast,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  serializeForm,
+  setLoading
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  renderState
+} from '../../core/other.js';
+import { can } from '../../core/permission.js';
 import { DataTable, actionButtons, tag } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 const KIND_MAP = { block: ['封禁', 'red'], allow: ['放行', 'green'] };
 const SCOPE_MAP = { all: '全部', api: '接口', admin: '后台', portal: '前台' };
@@ -33,10 +54,13 @@ export async function init() {
         className: 'actions',
         render: (row) =>
           actionButtons([
-            { act: 'edit', label: '编辑' },
-            { act: 'toggle', label: row.status === 'active' ? '停用' : '启用' },
-            { act: 'block-now', label: '封禁此段' },
-            { act: 'delete', label: '删除', danger: true },
+            can('security:ip-rule:update') && { act: 'edit', label: '编辑' },
+            can('security:ip-rule:update') && {
+              act: 'toggle',
+              label: row.status === 'active' ? '停用' : '启用',
+            },
+            can('security:ip-rule:create') && { act: 'block-now', label: '封禁此段' },
+            can('security:ip-rule:delete') && { act: 'delete', label: '删除', danger: true },
           ]),
       },
     ],
@@ -126,7 +150,7 @@ async function submitRule(event) {
   const form = event.currentTarget;
   const values = serializeForm(form);
   if (!values.target) {
-    toast('请填写 IP 或网段', 'warning');
+    toast(msg('ipRule.requireTarget'), 'warning');
     return;
   }
   const payload = {
@@ -177,7 +201,7 @@ async function blockThisRange(row) {
       reason: `由规则 #${row.id} 一键封禁`,
       minutes: 0,
     });
-    toast('已封禁', 'success');
+    toast(msg('ipRule.banned'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */
@@ -194,7 +218,7 @@ async function removeRule(row) {
   if (!ok) return;
   try {
     await api.del(`/security/ip-rules/${row.id}`);
-    toast('规则已删除', 'success');
+    toast(msg('ipRule.deleted'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */
@@ -205,7 +229,7 @@ async function submitBlockNow(event) {
   event.preventDefault();
   const values = serializeForm(event.currentTarget);
   if (!values.ip) {
-    toast('请填写 IP 地址', 'warning');
+    toast(msg('ipRule.requireIp'), 'warning');
     return;
   }
   const button = $('#block-submit');
@@ -217,7 +241,7 @@ async function submitBlockNow(event) {
       reason: values.reason || null,
       minutes: Number(values.minutes || 0),
     });
-    toast('已封禁该 IP', 'success');
+    toast(msg('ban.bannedIp'), 'success');
     closeModal('block-modal');
     table.reload();
   } catch {
@@ -234,12 +258,12 @@ async function runLookup() {
     box.textContent = '请先输入 IP。';
     return;
   }
-  box.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(box, { state: 'loading' });
   try {
     const result = await api.get(`/security/ip-rules/lookup/${encodeURIComponent(ip)}`);
     box.innerHTML = renderLookup(result);
   } catch (error) {
-    box.innerHTML = `<div class="table-empty">${esc(error?.message || '查询失败')}</div>`;
+    renderState(box, { state: 'error', message: error?.message });
   }
 }
 

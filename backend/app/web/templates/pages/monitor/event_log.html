@@ -1,0 +1,27 @@
+{% extends "layouts/admin.html" %}
+{% import "components/ui.html" as ui with context %}
+
+{% block content %}
+{% call ui.page_head() %}
+  <button class="btn" id="btn-refresh">刷新</button>
+{% endcall %}
+
+{% call ui.card() %}
+  {% call ui.filter_form() %}
+    {{ ui.filter_input('事件', 'event', placeholder='notice.published') }}
+    {{ ui.filter_select('结果', 'success', [('true', '成功'), ('false', '失败')]) }}
+    {{ ui.filter_input('开始日期', 'start_date', type='date') }}
+    {{ ui.filter_input('结束日期', 'end_date', type='date') }}
+  {% endcall %}
+
+  {{ ui.data_table([
+    ('事件', '200px'),
+    ('订阅者', '220px'),
+    ('结果', '80px'),
+    ('耗时', '90px'),
+    ('错误', ''),
+    ('时间', '170px')
+  ]) }}
+  {{ ui.pager() }}
+{% endcall %}
+{% endblock %}

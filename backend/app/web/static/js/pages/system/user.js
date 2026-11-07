@@ -1,10 +1,43 @@
 import {
-  $, $$, api, can, closeModal, confirmDialog, download, esc, fillForm, formatTime, openModal,
-  resetForm, serializeForm, setFieldError, setLoading, state, statusTag, STATUS_MAP, toast, validateForm,
-} from '../../core.js';
+  $,
+  $$,
+  esc
+} from '../../core/base.js';
+import {
+  state
+} from '../../core/session.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  fillForm,
+  resetForm,
+  serializeForm,
+  setFieldError,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import {
   DataTable, actionButtons, bindBatchBar, fillMultiSelect, fillSelect, selectedValues, tag, treeOptions,
 } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let table;
 let depts = [];
@@ -159,7 +192,7 @@ function bind() {
     if (!row) return;
     try {
       await api.patch(`/system/users/${row.id}/status`, { status: input.checked ? 'active' : 'disabled' });
-      toast('状态已更新', 'success');
+      toast(msg('user.statusUpdated'), 'success');
       table.reload();
     } catch {
       input.checked = !input.checked;
@@ -276,12 +309,12 @@ async function submitUser(event) {
   try {
     if (editing) {
       await api.put(`/system/users/${editing.id}`, payload);
-      toast('用户已更新', 'success');
+      toast(msg('user.updated'), 'success');
     } else {
       payload.password = $('#u-password').value;
       payload.must_change_password = form.must_change_password.checked;
       await api.post('/system/users', payload);
-      toast('用户创建成功', 'success');
+      toast(msg('user.created'), 'success');
     }
     closeModal('user-modal');
     table.reload();
@@ -320,7 +353,7 @@ async function submitReset(event) {
       new_password: form.new_password.value,
       must_change_password: form.must_change_password.checked,
     });
-    toast('密码已重置，该用户所有会话已失效', 'success');
+    toast(msg('user.passwordReset'), 'success');
     closeModal('reset-modal');
     table.reload();
   } catch {
@@ -352,7 +385,7 @@ async function submitRoles(event) {
   setLoading(button, true);
   try {
     await api.put(`/system/users/${roleTarget.id}/roles`, { role_ids: selectedValues($('#assign-roles select')) });
-    toast('角色已更新', 'success');
+    toast(msg('user.rolesUpdated'), 'success');
     closeModal('role-modal');
     table.reload();
   } catch {
@@ -372,7 +405,7 @@ async function remove(row) {
   if (!ok) return;
   try {
     await api.del(`/system/users/${row.id}`);
-    toast('用户已删除', 'success');
+    toast(msg('user.deleted'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */
@@ -384,7 +417,7 @@ async function remove(row) {
 async function exportUsers() {
   try {
     await download('/export/users', 'users.csv', { params: table.params });
-    toast('导出已开始', 'success');
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }
@@ -401,7 +434,7 @@ async function submitImport(event) {
   event.preventDefault();
   const file = $('#import-file').files?.[0];
   if (!file) {
-    toast('请先选择 CSV 文件', 'warning');
+    toast(msg('user.importSelectFile'), 'warning');
     return;
   }
   const dryRun = $('#import-dry').checked;
@@ -480,7 +513,7 @@ async function submitBan(event) {
       ban_ip: $('#ban_ip').checked,
       ip_minutes: Number(values.ip_minutes || 0),
     });
-    toast('用户已封禁', 'success');
+    toast(msg('user.banned'), 'success');
     closeModal('ban-modal');
     banTarget = null;
     table.reload();

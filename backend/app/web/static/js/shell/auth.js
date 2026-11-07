@@ -4,9 +4,29 @@
    ========================================================================== */
 
 import {
-  $, api, appUrl, applyTheme, heroGlow, heroGradient, internalPath,
-  setAccessToken, setSystemTimezone, toast, DEFAULT_THEME, DEFAULT_THEME_CODE,
-} from '../core.js';
+  $,
+  appUrl,
+  internalPath
+} from '../core/base.js';
+import {
+  setAccessToken
+} from '../core/session.js';
+import {
+  toast
+} from '../core/dialog.js';
+import {
+  api
+} from '../core/request.js';
+import {
+  setSystemTimezone
+} from '../core/time.js';
+import {
+  applyTheme,
+  heroGlow,
+  heroGradient,
+  DEFAULT_THEME,
+  DEFAULT_THEME_CODE
+} from '../core/theme.js';
 
 export function initLoginPage() {
   const form = $('#login-form');
@@ -18,6 +38,16 @@ export function initLoginPage() {
     if (version?.timezone) setSystemTimezone(version.timezone);
     const node = $('#login-version');
     if (node && version) node.textContent = `${version.name} v${version.version}`;
+  }).catch(() => undefined);
+
+  // 登录页描述/标题来自公开系统参数。此前 seed 里的 system.login_description
+  // 全库没有任何读取方，登录页一直显示模板硬编码文案，改配置不生效。
+  api.get('/system/public-config', null, { silent: true }).then((config) => {
+    if (!config) return;
+    const desc = $('#login-desc');
+    if (desc && config['system.login_description']) desc.textContent = String(config['system.login_description']);
+    const title = $('#login-title');
+    if (title && config['system.title']) title.textContent = String(config['system.title']);
   }).catch(() => undefined);
 
   applyLoginTheme();
@@ -45,7 +75,7 @@ export function initLoginPage() {
         window.location.replace(appUrl('account/profile'));
         return;
       }
-      const first = firstMenuPath(me.menus);
+      const first = safeNext() || firstMenuPath(me.menus);
       window.location.replace(appUrl(first || 'dashboard'));
     } catch (error) {
       showLoginError(error?.message || '登录失败');
@@ -63,6 +93,17 @@ export function initLoginPage() {
     errorBox.textContent = message;
     errorBox.classList.remove('hidden');
   }
+}
+
+/**
+ * 登录后要回到的页面（来自 ``?next=``）。只接受站内绝对路径：
+ * ``//evil.com`` 是协议相对地址、``https://evil.com`` 是绝对地址，两者都会
+ * 变成开放重定向，必须挡掉。
+ */
+function safeNext() {
+  const raw = new URLSearchParams(window.location.search).get('next');
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return null;
+  return raw.replace(/^\/+/, '');
 }
 
 function firstMenuPath(menus) {

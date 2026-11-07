@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import traceback
 from contextlib import suppress
 from datetime import datetime
@@ -9,15 +10,19 @@ from typing import Any
 
 from sqlalchemy import delete, select, update
 
+from app.core import events
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.serializers import iso
 from app.db.base import rowcount, utcnow
 from app.db.session import session_scope
+from app.jobs import registry
 from app.jobs.python_runner import OUTPUT_LIMIT, PythonJobError, execute_python_script
 from app.jobs.registry import execute_job
-from app.modules.schedule.locks import acquire_locks, renew_with_retry
-from app.modules.schedule.models import Job, JobLock, JobLog
+from app.modules.ops.schedule.locks import acquire_locks, renew_with_retry
+from app.modules.ops.schedule.models import Job, JobLock, JobLog
+
+logger = logging.getLogger("fastcms.jobs")
 
 
 def _job_snapshot(job: Job) -> dict[str, Any]:
@@ -38,6 +43,22 @@ def _code_hash(snapshot: dict[str, Any]) -> str | None:
     if snapshot["job_type"] != "python" or not snapshot.get("script_code"):
         return None
     return hashlib.sha256(snapshot["script_code"].encode("utf-8")).hexdigest()
+
+
+def _is_idle_noop(
+    snapshot: dict[str, Any],
+    status: str,
+    output: str | None,
+    error: str | None,
+) -> bool:
+    """本次执行是否属于「无事可做」的空转轮次。
+
+    三个条件同时成立才算：任务显式声明了 ``quiet_when_idle``、执行成功、
+    且处理器没有产出（返回 None）。失败或中断永远留日志——那是要排查的东西。
+    """
+    if status != "success" or output or error:
+        return False
+    return registry.is_quiet_when_idle(str(snapshot.get("code") or ""))
 
 
 async def _write_running_log(snapshot: dict[str, Any], trigger: str, token: str) -> int:
@@ -115,6 +136,7 @@ async def run_job(job_id: int, trigger: str = "scheduler") -> None:
     status = "success"
     output: str | None = None
     error: str | None = None
+    idle_noop = False
     try:
         log_id = await _write_running_log(snapshot, trigger, lease.token)
         async with session_scope() as db:
@@ -164,15 +186,21 @@ async def run_job(job_id: int, trigger: str = "scheduler") -> None:
             note = "[warn] 任务锁续租失败，本次执行期间不保证与其它进程互斥"
             output = f"{output}\n{note}" if output else note
         try:
+            idle_noop = _is_idle_noop(snapshot, status, output, error)
             async with session_scope() as db:
                 if log_id is not None:
                     log = await db.get(JobLog, log_id)
                     if log is not None:
-                        log.status = status
-                        log.finished_at = finished
-                        log.duration_ms = duration_ms
-                        log.output = output
-                        log.error = error
+                        if idle_noop:
+                            # 高频 interval 任务的空转轮次不留日志：否则一天上千条
+                            # 「成功」会把任务日志页面刷满，真正的失败反而被淹没。
+                            await db.delete(log)
+                        else:
+                            log.status = status
+                            log.finished_at = finished
+                            log.duration_ms = duration_ms
+                            log.output = output
+                            log.error = error
                 current_job = await db.get(Job, job_id)
                 if current_job is not None:
                     current_job.last_run_at = started
@@ -183,14 +211,23 @@ async def run_job(job_id: int, trigger: str = "scheduler") -> None:
                         current_job.next_run_at = None
         finally:
             await lease.release()
-        with suppress(Exception):
-            from app.modules.schedule.scheduler import scheduler_service
+        if idle_noop:
+            # 日志行已删，事件里不能再带一个指向空行的 log_id
+            log_id = None
+        try:
+            from app.modules.ops.schedule.scheduler import scheduler_service
 
             await scheduler_service.refresh_job_state(job_id)
-        with suppress(Exception, asyncio.CancelledError):
-            from app.modules.notify import hooks
-
-            await hooks.job_finished(
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # 收尾刷新失败会让 next_run_at 停在旧值，页面上看不出任何异常；
+            # 必须留日志，否则「任务跑完了但下次时间不对」无从排查。
+            logger.warning("刷新任务状态失败 job_id=%s", job_id, exc_info=True)
+        try:
+            # 只广播「任务结束了」，通知渠道由 notify 模块自己订阅
+            await events.publish(
+                "job.finished",
                 log_id=log_id,
                 job=snapshot,
                 status=status,
@@ -200,6 +237,15 @@ async def run_job(job_id: int, trigger: str = "scheduler") -> None:
                 started_at=started,
                 finished_at=finished,
             )
+        except asyncio.CancelledError:
+            # CancelledError 在 3.12 是 BaseException：停机取消若恰好命中这个
+            # await，绝不能吞掉，否则 run_job 会「正常返回」、取消方的 cancel()
+            # 拿不到异常，任务也不会被标记中断。
+            raise
+        except Exception:
+            # 不影响任务结果，但不能静默：publish 抛出意味着「任务结束」通知
+            # 连 EventLog 都没留下，留一行可查的告警而不是黑洞。
+            logger.warning("job.finished 广播失败 job_id=%s", job_id, exc_info=True)
 
 
 async def recover_interrupted_logs() -> int:
@@ -261,6 +307,6 @@ def log_out(item: JobLog, *, include_detail: bool = False) -> dict[str, Any]:
 
 
 def _owner_alive(owner: str) -> bool:
-    from app.modules.schedule.locks import owner_alive
+    from app.modules.ops.schedule.locks import owner_alive
 
     return owner_alive(owner)

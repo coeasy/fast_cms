@@ -1,0 +1,10 @@
+{% extends "layouts/portal.html" %}
+
+{% block portal_content %}
+<section class="portal-page">
+  <a class="btn btn-text" href="{{ portal_base }}content">&larr; 返回公告列表</a>
+  <article id="notice-detail" class="notice-detail" aria-live="polite">
+    <p class="muted">加载中…</p>
+  </article>
+</section>
+{% endblock %}

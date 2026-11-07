@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UTCDateTime, utcnow
+
+# FileObject 已迁至内核层（app/kernel/models.py）：文件存储是平台能力，
+# 头像 / 个人资料 / 文件管理页面都直接用它，不属于公告业务。
+# 这里保留 re-export 一个版本，避免外部引用一次性断裂。
+from app.kernel.models import FileObject  # noqa: F401
 
 
 class Notice(Base, TimestampMixin):
@@ -29,17 +34,3 @@ class NoticeRead(Base):
     notice_id: Mapped[int] = mapped_column(ForeignKey("sys_notice.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id", ondelete="CASCADE"), index=True)
     read_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
-
-
-class FileObject(Base):
-    __tablename__ = "sys_file"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    stored_name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    content_type: Mapped[str | None] = mapped_column(String(128))
-    size: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
-    sha256: Mapped[str | None] = mapped_column(String(64), index=True)
-    uploader_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id", ondelete="SET NULL"), index=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)

@@ -6,9 +6,10 @@
 {% extends "base.html" %}
 {% import "components/ui.html" as ui with context %}
 
-{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/admin.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/admin.css?v={{ asset_v() }}">{% endblock %}
 
 {% block body %}
+<a class="skip-link" href="#main">跳到主内容</a>
 <div class="app">
   <aside class="sider">
     <div class="brand" id="brand"></div>
@@ -26,7 +27,7 @@
       <div class="header-right" id="header-actions"></div>
     </header>
 
-    <main class="content">
+    <main class="content" id="main" tabindex="-1">
       <div class="content-inner">
         {% block content %}{% endblock %}
       </div>

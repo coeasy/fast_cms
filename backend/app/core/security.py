@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 from datetime import timedelta
@@ -65,6 +66,26 @@ def verify_password(password: str, password_hash: str) -> bool:
 def verify_login_password(password: str, password_hash: str | None) -> bool:
     """账号不存在时也执行一次 Argon2 校验，让成功/失败/未知用户的响应时间保持一致。"""
     return verify_password(password, password_hash or DUMMY_PASSWORD_HASH)
+
+
+# ---- 异步入口（B-2 / Phase 11-1）-------------------------------------------
+#
+# Argon2 按 memory_cost=19 MiB / time_cost=2 配置，单次验证要占住当前线程
+# 数十毫秒；psutil 同理（见 monitor.service）。这些调用过去直接写在 async
+# 函数体里，事件循环在整个哈希期间无法调度任何其他请求——登录高峰时一个
+# 慢哈希就把所有并发请求串成一队。封装成 ``asyncio.to_thread`` 入口后：
+# 同步版本保留给 CLI / seed 等同步上下文，async 函数体里一律用下面的版本。
+
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    return await asyncio.to_thread(verify_password, password, password_hash)
+
+
+async def verify_login_password_async(password: str, password_hash: str | None) -> bool:
+    return await asyncio.to_thread(verify_login_password, password, password_hash)
 
 
 def validate_password_strength(

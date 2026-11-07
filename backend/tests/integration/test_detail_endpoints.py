@@ -10,7 +10,7 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import TEST_DB, auth, login
+from tests.conftest import auth, current_db_path, login
 
 
 def _create_viewer(client: TestClient, headers: dict[str, str], username: str) -> tuple[int, str]:
@@ -230,7 +230,7 @@ def test_notice_unpublish_hides_from_users(client: TestClient, admin_token: str)
 
 
 def test_codegen_columns_detail(client: TestClient, admin_token: str) -> None:
-    with sqlite3.connect(TEST_DB) as connection:
+    with sqlite3.connect(current_db_path()) as connection:
         connection.execute(
             "CREATE TABLE IF NOT EXISTS demo_column_probe ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "

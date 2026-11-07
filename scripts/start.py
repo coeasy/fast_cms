@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -27,12 +28,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 VENV = BACKEND / ".venv"
-LOG_DIR = BACKEND / "data" / "logs"
-TEST_DB = BACKEND / "data" / "quickstart-test.db"
-TEST_UPLOADS = BACKEND / "data" / "uploads-test"
 DEFAULT_TEST_PASSWORD = "fast_cms_123"
 IS_WINDOWS = os.name == "nt"
 PRINT_LOCK = threading.Lock()
+
+# 依赖探测复用 env_check，避免启动器与安装脚本各维护一份"需要哪些包"的清单
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config_probe  # noqa: E402
+import env_check  # noqa: E402
+
+# 日志与测试库跟随数据根目录：改 DATA_DIR 即可把整份数据搬到别的磁盘，
+# 后续升级只替换源码，数据原地不动
+LOG_DIR = config_probe.data_root() / "logs"
+TEST_DB = config_probe.data_root() / "quickstart-test.db"
+TEST_UPLOADS = config_probe.data_root() / "uploads-test"
 
 
 class LauncherError(RuntimeError):
@@ -46,10 +55,8 @@ def log(message: str) -> None:
 def setup_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 stream.reconfigure(encoding="utf-8", errors="replace")
-            except (OSError, ValueError):
-                pass
 
 
 def base_env() -> dict[str, str]:
@@ -59,9 +66,9 @@ def base_env() -> dict[str, str]:
     return env
 
 
-DEFAULT_API_PREFIX = "/api/v1"
-DEFAULT_ADMIN_BASE = "/admin"
-DEFAULT_PORTAL_BASE = "/front"
+DEFAULT_API_PREFIX = config_probe.DEFAULT_API_PREFIX
+DEFAULT_ADMIN_BASE = config_probe.DEFAULT_ADMIN_BASE
+DEFAULT_PORTAL_BASE = config_probe.DEFAULT_PORTAL_BASE
 
 
 def read_root_env() -> dict[str, str]:
@@ -79,31 +86,26 @@ def read_root_env() -> dict[str, str]:
     return values
 
 
+def merged_env(env: dict[str, str]) -> dict[str, str]:
+    """命令行/运行时环境变量优先，.env 兜底 —— 与后端 pydantic-settings 的读取顺序一致。"""
+    merged = read_root_env()
+    merged.update(env)
+    return merged
+
+
 def resolve_api_prefix(env: dict[str, str]) -> str:
-    """与后端 Settings.api_prefix 保持一致的归一化规则。"""
-    raw = env.get("API_PREFIX") or read_root_env().get("API_PREFIX") or DEFAULT_API_PREFIX
-    prefix = raw.strip().rstrip("/")
-    if not prefix.startswith("/"):
-        prefix = f"/{prefix}" if prefix else ""
-    return prefix or DEFAULT_API_PREFIX
+    """与后端 Settings.api_prefix 同规则；归一化逻辑收敛在 config_probe。"""
+    return config_probe.resolve_api_prefix(merged_env(env))
 
 
 def resolve_admin_base(env: dict[str, str]) -> str:
     """后台挂载路径，与后端 Settings.admin_base 同规则；返回带尾斜杠形态供拼 URL 使用。"""
-    return resolve_site_base("ADMIN_BASE", DEFAULT_ADMIN_BASE, env)
+    return config_probe.resolve_site_path("ADMIN_BASE", DEFAULT_ADMIN_BASE, merged_env(env))
 
 
 def resolve_portal_base(env: dict[str, str]) -> str:
     """前台挂载路径，与后端 Settings.portal_base 同规则；返回带尾斜杠形态供拼 URL 使用。"""
-    return resolve_site_base("PORTAL_BASE", DEFAULT_PORTAL_BASE, env)
-
-
-def resolve_site_base(key: str, default: str, env: dict[str, str]) -> str:
-    raw = env.get(key) or read_root_env().get(key) or default
-    base = (raw.strip() or default).rstrip("/")
-    if base and not base.startswith("/"):
-        base = f"/{base}"
-    return f"{base}/" if base else "/"
+    return config_probe.resolve_site_path("PORTAL_BASE", DEFAULT_PORTAL_BASE, merged_env(env))
 
 
 def venv_python() -> Path:
@@ -176,14 +178,10 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-    try:
+    with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
 
 
 def port_available(port: int) -> bool:
@@ -218,32 +216,82 @@ def ensure_env_file() -> None:
         log("已创建 .env（来自 .env.example）")
 
 
-def ensure_backend(env: dict[str, str]) -> Path:
+def ensure_server_env(allow_http: bool) -> str | None:
+    """服务端模式先保证 .env 是「对外提供服务」的硬化配置，返回初始口令（仅首次生成时有值）。
+
+    这一步让 `python scripts/start.py server` 成为唯一必学的命令：
+    没有 .env 时直接生成 production + 0.0.0.0 + 随机强口令；
+    已有 .env 则尊重用户配置，只做体检提醒，不擅自改动任何一行。
+    """
+    import install  # 延迟导入：只有 server 模式才需要安装脚本的 .env 生成逻辑
+
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        password, generated = install.configure_server_env(None, allow_http)
+        print("=" * 64)
+        print("  未找到 .env，已按服务端部署自动生成")
+        print("    APP_ENV=production      强制强口令，Cookie 按 HTTPS 规则下发")
+        print("    APP_HOST=0.0.0.0        允许其他机器访问")
+        print("    APP_DOCS_ENABLED=false  关闭 /docs 与 /openapi.json")
+        if allow_http:
+            print("    AUTH_COOKIE_SECURE=false  按明文 HTTP 访问配置")
+        print(f"  管理员：admin / {password}" + ("（本次自动生成，只显示这一次）" if generated else ""))
+        print("=" * 64)
+        return password
+
+    current = read_root_env().get("APP_ENV", "").strip().lower()
+    if current not in {"prod", "production"}:
+        log(
+            f"当前 .env 的 APP_ENV={current or 'dev（默认）'}，尚未启用生产加固"
+            "（强制强口令、关闭接口文档、Cookie 走 HTTPS 规则）。\n"
+            "  若要对外正式提供服务，请执行：python scripts/install.py --server"
+        )
+    return None
+
+
+def ensure_backend(env: dict[str, str], no_venv: bool = False) -> Path:
+    """挑选承载后端的解释器：已有 venv → 当前解释器（依赖齐全时）→ 新建 venv。
+
+    优先复用「已经装好依赖的当前解释器」，是因为很多部署环境本身就是
+    conda 环境或系统 Python 统一装依赖，再套一层 venv 只会重复下载几百 MB。
+    """
     python = venv_python()
-    if not python.exists():
-        log("未找到 backend/.venv，正在创建虚拟环境...")
-        result = subprocess.run([sys.executable, "-m", "venv", str(VENV)], cwd=ROOT, env=env, check=False)
-        if result.returncode != 0 or not python.exists():
-            raise LauncherError("创建后端虚拟环境失败，请确认 Python 3.12+ 可用")
-    probe = subprocess.run(
-        [str(python), "-c", "import fastapi, uvicorn, sqlalchemy, aiosqlite, jinja2"],
-        cwd=BACKEND,
+    if python.exists() and not no_venv:
+        missing = env_check.probe_dependencies(python)
+        if missing:
+            log(f"backend/.venv 缺少 {len(missing)} 项依赖，正在补齐...")
+            install_dependencies(python, env)
+        return python
+
+    current = Path(sys.executable)
+    missing = env_check.probe_dependencies(current)
+    if not missing:
+        log(f"当前解释器依赖齐全，直接使用（{current}）")
+        return current
+    if no_venv:
+        raise LauncherError(
+            f"当前解释器缺少依赖：{'、'.join(missing)}\n"
+            "  先执行 python scripts/install.py --system --deps-only，或去掉 --no-venv 让启动器自建 backend/.venv"
+        )
+
+    log("未找到 backend/.venv，正在创建虚拟环境...")
+    result = subprocess.run([str(current), "-m", "venv", str(VENV)], cwd=ROOT, env=env, check=False)
+    if result.returncode != 0 or not python.exists():
+        raise LauncherError("创建后端虚拟环境失败，请确认 Python 3.12+ 可用")
+    install_dependencies(python, env)
+    return python
+
+
+def install_dependencies(python: Path, env: dict[str, str]) -> None:
+    log("安装后端依赖...")
+    result = subprocess.run(
+        [str(python), "-m", "pip", "install", "-r", str(BACKEND / "requirements-dev.txt")],
+        cwd=ROOT,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
         check=False,
     )
-    if probe.returncode != 0:
-        log("安装后端依赖...")
-        result = subprocess.run(
-            [str(python), "-m", "pip", "install", "-e", "backend[dev]"],
-            cwd=ROOT,
-            env=env,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise LauncherError("后端依赖安装失败")
-    return python
+    if result.returncode != 0:
+        raise LauncherError("后端依赖安装失败；改用 python scripts/install.py 可以看到更详细的失败原因")
 
 
 def init_database(python: Path, env: dict[str, str]) -> None:
@@ -334,6 +382,8 @@ def print_ready(
     portal_url: str | None,
     password: str | None,
     log_dir: Path,
+    extra_web_urls: tuple[str, ...] = (),
+    warnings: tuple[str, ...] = (),
 ) -> None:
     print("=" * 64)
     print(f"  模式：{mode}")
@@ -341,6 +391,10 @@ def print_ready(
     print(f"  后台页面：{web_url}")
     if portal_url:
         print(f"  前台站点：{portal_url}")
+    if extra_web_urls:
+        print("  其他机器访问：")
+        for url in extra_web_urls:
+            print(f"    {url}")
     if password:
         print(f"  管理员：admin / {password}")
         print("  提示：本地测试库可直接登录；生产环境（APP_ENV=production）首次登录会强制改密")
@@ -348,35 +402,56 @@ def print_ready(
         print("  管理员：测试库已保留，密码沿用上次初始化")
     else:
         print("  管理员：首次初始化密码见上方输出；已有库沿用原密码")
-    print(f"  接口文档：{backend_url}/docs")
+    if mode != "server":
+        print(f"  接口文档：{backend_url}/docs")
     print(f"  日志目录：{log_dir}")
+    for line in warnings:
+        print(f"  ! {line}")
     print("  按 Ctrl+C 停止")
     print("=" * 64)
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fast CMS 本地一键启动（默认 SQLite，不依赖 Docker / MySQL / Redis）",
+        description="Fast CMS 一键启动（默认 SQLite，不依赖 Docker / MySQL / Redis）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""示例:
   python scripts/start.py                 开发模式，单进程 + 热重载（自动选择端口）
+  python scripts/start.py server          服务端模式：监听 0.0.0.0，打印其他机器的访问地址
+  python scripts/start.py server --http   同上，但按明文 HTTP 访问（无 HTTPS 时必须加）
   python scripts/start.py preview         按 .env 的 APP_HOST/APP_PORT 启动，关闭热重载
   python scripts/start.py test            独立测试库 + 固定测试密码
   python scripts/start.py test --check    启动自检，就绪后自动退出
 """,
     )
-    parser.add_argument("mode", nargs="?", choices=("dev", "preview", "test"), default="dev")
-    parser.add_argument("--host", default=None, help="监听地址，默认开发/测试用 127.0.0.1，预览取 .env 的 APP_HOST")
+    parser.add_argument("mode", nargs="?", choices=("dev", "preview", "test", "server"), default="dev")
+    parser.add_argument("--host", default=None, help="监听地址，默认开发/测试用 127.0.0.1，server 用 0.0.0.0，preview 取 .env")
     parser.add_argument("--backend-port", "--port", dest="backend_port", type=int, default=None, help="服务端口")
     parser.add_argument("--keep-db", action="store_true", help="测试模式保留已有测试库")
     parser.add_argument("--open", action="store_true", help="就绪后打开浏览器")
     parser.add_argument("--check", action="store_true", help="就绪后自检并退出")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--no-venv",
+        action="store_true",
+        help="不创建 backend/.venv，直接用当前解释器（依赖需已装好，见 install.py --system）",
+    )
+    parser.add_argument(
+        "--http",
+        action="store_true",
+        help="配合 server：没有 HTTPS 反向代理时使用，按明文 HTTP 配置 AUTH_COOKIE_SECURE=false",
+    )
+    args = parser.parse_args(argv)
+    if args.http and args.mode != "server":
+        parser.error("--http 需要与 server 模式一起使用（其他模式不改写 .env 的 Cookie 配置）")
+    return args
 
 
 def resolve_bind_host(explicit: str | None, env: dict[str, str], mode: str) -> str:
     if explicit:
         return explicit
+    if mode == "server":
+        # 服务端模式：显式监听全部网卡，让其他机器能访问
+        return "0.0.0.0"
     if mode != "preview":
         # 开发模式固定只监听回环，避免把带热重载的未加固服务暴露到局域网
         return "127.0.0.1"
@@ -386,7 +461,7 @@ def resolve_bind_host(explicit: str | None, env: dict[str, str], mode: str) -> s
 def resolve_bind_port(explicit: int | None, env: dict[str, str], mode: str) -> int | None:
     if explicit is not None:
         return explicit
-    if mode != "preview":
+    if mode not in {"preview", "server"}:
         return None
     raw = read_root_env().get("APP_PORT") or env.get("APP_PORT") or ""
     try:
@@ -404,13 +479,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     procs: list[tuple[str, subprocess.Popen[str]]] = []
     try:
-        ensure_env_file()
+        if args.mode == "server":
+            password = ensure_server_env(args.http)
+        else:
+            ensure_env_file()
+            password = None
         if args.mode == "test":
             env, password = prepare_test_env(args.keep_db)
         else:
-            env, password = base_env(), None
+            env = base_env()
 
-        python = ensure_backend(env)
+        python = ensure_backend(env, no_venv=args.no_venv)
         api_prefix = resolve_api_prefix(env)
         admin_base = resolve_admin_base(env)
         # 拼 URL 用不带尾斜杠的形态，挂在根路径时退化成空串
@@ -442,6 +521,19 @@ def main(argv: list[str] | None = None) -> int:
 
         # 前后台页面与接口同源同端口，都由这一个进程输出
         web_url = f"{backend_url}{admin_path}"
+        extra_web_urls: tuple[str, ...] = ()
+        warnings: list[str] = []
+        if bind_host in {"0.0.0.0", "::"}:
+            extra_web_urls = tuple(
+                f"http://{ip}:{backend_port}{admin_path}" for ip in env_check.local_ipv4_addresses()
+            )
+            if not extra_web_urls:
+                warnings.append(f"未探测到本机对外 IP，请用 http://<本机IP>:{backend_port}{admin_path} 访问")
+        if args.mode == "server" and env_check.cookie_secure_effective(env_check.read_root_env()):
+            warnings.append(
+                "当前 AUTH_COOKIE_SECURE 为 true（HTTPS 假设）。若用 http:// 直接访问，"
+                "登录 15 分钟后会掉线：把 .env 改成 AUTH_COOKIE_SECURE=false，或改用 HTTPS 反向代理"
+            )
         print_ready(
             args.mode,
             backend_url,
@@ -449,6 +541,8 @@ def main(argv: list[str] | None = None) -> int:
             f"{backend_url}{portal_path}" if portal_path else backend_url,
             password,
             LOG_DIR,
+            extra_web_urls,
+            tuple(warnings),
         )
 
         if args.check:
@@ -474,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         log(f"启动失败：{exc}")
         return 1
     finally:
-        for name, proc in reversed(procs):
+        for _name, proc in reversed(procs):
             terminate(proc)
         if procs:
             log("已停止")

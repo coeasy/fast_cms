@@ -1,9 +1,40 @@
 import {
-  $, $$, api, appUrl, can, closeModal, confirmDialog, esc, fillForm, formatTime, openModal,
-  resetForm, serializeForm, setLoading, statusTag, STATUS_MAP, toast, utcIsoToWall,
-  validateForm, wallToUtcIso,
-} from '../../core.js';
+  $,
+  $$,
+  appUrl,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  fillForm,
+  resetForm,
+  serializeForm,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  formatTime,
+  utcIsoToWall,
+  wallToUtcIso
+} from '../../core/time.js';
+import {
+  renderState,
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import { DataTable, actionButtons, fillSelect } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 const JOB_TYPE_LABELS = {
   registry: { label: '注册表', color: 'blue' },
@@ -15,6 +46,9 @@ let definitions = [];
 let templates = [];
 let capabilities = { python_enabled: false, can_manage_python: false };
 let editing = null;
+// 编辑态下脚本内容是否真的加载过：没有 schedule:job:code 时详情也不返回
+// script_code，这时必须「不传」该字段，让后端保留原值，而不是回传空串。
+let scriptLoaded = false;
 
 export async function init() {
   await loadMeta();
@@ -168,6 +202,7 @@ function syncSections() {
 
 function openCreate() {
   editing = null;
+  scriptLoaded = false;
   const form = $('#job-form');
   resetForm(form);
   $('#job-modal-title').textContent = '新建任务';
@@ -182,28 +217,38 @@ function openCreate() {
   openModal('job-modal');
 }
 
-function openEdit(row) {
-  editing = row;
+async function openEdit(row) {
+  // 列表接口不返回 script_code（详情才带，且需要 schedule:job:code）。直接拿列表行
+  // 填表单会得到一个空的脚本框，保存时又把空串写回去——等于把已有脚本清空。
+  // 所以编辑前先取一次详情；没有权限时详情里也没有该字段，靠 scriptLoaded 兜住。
+  let detail = row;
+  try {
+    detail = (await api.get(`/schedule/jobs/${row.id}`, null, { silent: true })) || row;
+  } catch {
+    detail = row;
+  }
+  scriptLoaded = detail.script_code !== undefined;
+  editing = detail;
   const form = $('#job-form');
   resetForm(form);
-  $('#job-modal-title').textContent = `编辑任务 ${row.name}`;
+  $('#job-modal-title').textContent = `编辑任务 ${detail.name}`;
   fillSelect(form.elements.handler_code, definitions.map((item) => ({ value: item.code, label: `${item.name}（${item.code}）` })), { placeholder: '请选择任务定义' });
   fillForm(form, {
-    name: row.name,
-    code: row.code,
-    description: row.description,
-    job_type: row.job_type,
-    status: row.status,
-    handler_code: row.job_type === 'registry' ? row.code : '',
-    script_code: row.script_code || '',
-    trigger_type: row.trigger_type,
-    cron_expr: row.cron_expr || '',
-    interval_seconds: row.interval_seconds,
-    timezone: row.timezone || '',
-    args_json: row.args_json || {},
-    timeout_seconds: row.timeout_seconds,
+    name: detail.name,
+    code: detail.code,
+    description: detail.description,
+    job_type: detail.job_type,
+    status: detail.status,
+    handler_code: detail.job_type === 'registry' ? detail.code : '',
+    script_code: detail.script_code || '',
+    trigger_type: detail.trigger_type,
+    cron_expr: detail.cron_expr || '',
+    interval_seconds: detail.interval_seconds,
+    timezone: detail.timezone || '',
+    args_json: detail.args_json || {},
+    timeout_seconds: detail.timeout_seconds,
   });
-  form.elements.run_at.value = utcIsoToWall(row.run_at);
+  form.elements.run_at.value = utcIsoToWall(detail.run_at);
   form.elements.code.readOnly = true;
   syncSections();
   openModal('job-modal');
@@ -232,7 +277,11 @@ function buildPayload() {
   if (trigger === 'interval') payload.interval_seconds = values.interval_seconds;
   if (trigger === 'date') payload.run_at = wallToUtcIso(form.elements.run_at.value);
 
-  if (jobType === 'python') payload.script_code = values.script_code || '';
+  // 新建时脚本必填由表单校验兜住；编辑时若没拿到原脚本（无权限/接口失败），
+  // 不传这个字段，交给后端沿用库里的值，避免把脚本清空。
+  if (jobType === 'python' && (!editing || scriptLoaded)) {
+    payload.script_code = values.script_code || '';
+  }
   if (!editing) {
     payload.job_type = jobType;
     payload.code = jobType === 'registry' ? form.elements.handler_code.value : values.code;
@@ -245,7 +294,7 @@ async function validateScript() {
   const code = (form.elements.script_code.value || '').trim();
   const hint = $('#script-validate-hint');
   if (!code) {
-    toast('请先填写脚本内容', 'warning');
+    toast(msg('job.requireScript'), 'warning');
     return;
   }
   const button = $('#btn-validate-script');
@@ -253,7 +302,7 @@ async function validateScript() {
   try {
     await api.post('/schedule/python/validate', { script_code: code });
     if (hint) hint.textContent = '语法校验通过。';
-    toast('脚本语法校验通过', 'success');
+    toast(msg('job.scriptOk'), 'success');
   } catch (error) {
     // 语法错误的具体位置对使用者最有价值，直接落到字段下方而不是只弹一条提示
     if (hint) hint.textContent = error?.message || '语法校验未通过。';
@@ -270,19 +319,19 @@ async function submit(event) {
   const jobType = form.elements.job_type.value;
   const trigger = form.elements.trigger_type.value;
   if (jobType === 'registry' && !form.elements.handler_code.value) {
-    toast('请选择任务定义', 'warning');
+    toast(msg('job.requireTemplate'), 'warning');
     return;
   }
   if (trigger === 'cron' && !form.elements.cron_expr.value.trim()) {
-    toast('请填写 Cron 表达式', 'warning');
+    toast(msg('job.requireCron'), 'warning');
     return;
   }
   if (trigger === 'interval' && !form.elements.interval_seconds.value) {
-    toast('请填写间隔秒数', 'warning');
+    toast(msg('job.requireInterval'), 'warning');
     return;
   }
   if (trigger === 'date' && !form.elements.run_at.value) {
-    toast('请选择执行时间', 'warning');
+    toast(msg('job.requireTime'), 'warning');
     return;
   }
 
@@ -292,10 +341,10 @@ async function submit(event) {
   try {
     if (editing) {
       await api.put(`/schedule/jobs/${editing.id}`, payload);
-      toast('任务已更新', 'success');
+      toast(msg('job.updated'), 'success');
     } else {
       await api.post('/schedule/jobs', payload);
-      toast('任务创建成功', 'success');
+      toast(msg('job.created'), 'success');
     }
     closeModal('job-modal');
     table.reload();
@@ -336,15 +385,17 @@ async function trigger(row) {
 
 async function showRuns(row) {
   const body = $('#runs-body');
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('runs-modal');
   try {
     const runs = await api.get(`/schedule/jobs/${row.id}/next-runs`, { count: 5 });
-    body.innerHTML = runs?.length
-      ? `<ul class="list-plain">${runs.map((time) => `<li style="cursor:default">${esc(formatTime(time))}</li>`).join('')}</ul>`
-      : '<div class="table-empty">没有可预测的下次执行时间</div>';
+    if (runs?.length) {
+      body.innerHTML = `<ul class="list-plain">${runs.map((time) => `<li style="cursor:default">${esc(formatTime(time))}</li>`).join('')}</ul>`;
+    } else {
+      renderState(body, { state: 'empty', emptyText: '没有可预测的下次执行时间' });
+    }
   } catch (error) {
-    body.innerHTML = `<div class="table-empty">${esc(error?.message || '加载失败')}</div>`;
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 
@@ -358,7 +409,7 @@ async function remove(row) {
   if (!ok) return;
   try {
     await api.del(`/schedule/jobs/${row.id}`);
-    toast('任务已删除', 'success');
+    toast(msg('job.deleted'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */

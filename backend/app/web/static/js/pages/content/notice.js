@@ -1,17 +1,20 @@
-import {
-  $, $$, api, can, closeModal, confirmDialog, download, esc, fillForm, formatTime, openModal,
-  resetForm, serializeForm, setLoading, statusTag, STATUS_MAP, toast, validateForm,
-} from '../../core.js';
-import { DataTable, actionButtons } from '../../ui.js';
+import { $, esc } from '../../core/base.js';
+import { confirmDialog, toast } from '../../core/dialog.js';
+import { fillForm } from '../../core/form.js';
+import { msg } from '../../core/messages.js';
+import { STATUS_MAP, statusTag } from '../../core/other.js';
+import { can } from '../../core/permission.js';
+import { api, download } from '../../core/request.js';
+import { formatTime } from '../../core/time.js';
+import { actionButtons, createCrudPage } from '../../ui.js';
 
-let table;
-let editing = null;
+let page;
 
 export async function init() {
-  table = new DataTable({
-    table: $('table.data'),
-    pager: $('.pager'),
-    fetch: (params) => api.get('/content/notices', params),
+  page = createCrudPage({
+    endpoint: '/content/notices',
+    pagerSelector: '.pager',
+    filters: '#filters',
     columns: [
       {
         render: (row) =>
@@ -23,99 +26,54 @@ export async function init() {
       { render: (row) => esc(formatTime(row.updated_at)) },
       { className: 'actions', render: (row) => rowActions(row) },
     ],
+    form: {
+      id: '#notice-form',
+      modal: 'notice-modal',
+      titleId: '#notice-modal-title',
+      submitId: '#notice-submit',
+      titleCreate: '新建公告',
+      titleEdit: (row) => `编辑公告 ${row.title}`,
+      onCreate: (form) => {
+        // 只有「新建」才需要选状态；编辑不改状态（发布/下线走行内按钮，走独立确认）
+        form.querySelectorAll('[data-create-only]').forEach((node) => node.classList.remove('hidden'));
+        form.elements.status.value = 'draft';
+      },
+      onEdit: (form, row) => {
+        form.querySelectorAll('[data-create-only]').forEach((node) => node.classList.add('hidden'));
+        fillForm(form, { title: row.title, content: row.content, is_top: row.is_top });
+      },
+      payload: (values, row) =>
+        row
+          ? { title: values.title, content: values.content, is_top: values.is_top }
+          : {
+              title: values.title,
+              content: values.content,
+              status: values.status,
+              is_top: values.is_top,
+            },
+    },
+    messages: { created: 'notice.created', updated: 'notice.updated', deleted: 'notice.deleted' },
+    confirm: {
+      title: '删除公告',
+      message: (row) => `确认删除公告「${row.title}」？`,
+    },
+    actions: [
+      { act: 'publish', run: (row) => changeStatus(row, 'publish') },
+      { act: 'unpublish', run: (row) => changeStatus(row, 'unpublish') },
+    ],
   });
 
-  await table.load(1);
-  bind();
+  await page.init();
+  $('#btn-export')?.addEventListener('click', exportNotices);
 }
 
 function rowActions(row) {
   return actionButtons([
     can('system:notice:update') && { act: 'edit', label: '编辑' },
     can('system:notice:publish') &&
-      (row.status === 'published'
-        ? { act: 'unpublish', label: '下线' }
-        : { act: 'publish', label: '发布' }),
+      (row.status === 'published' ? { act: 'unpublish', label: '下线' } : { act: 'publish', label: '发布' }),
     can('system:notice:delete') && { act: 'delete', label: '删除', danger: true },
   ]);
-}
-
-function bind() {
-  $('#filters').addEventListener('submit', (event) => {
-    event.preventDefault();
-    table.search(serializeForm(event.currentTarget));
-  });
-  $('#filters').addEventListener('reset', () => setTimeout(() => table.search({}), 0));
-  $('#btn-refresh')?.addEventListener('click', () => table.reload());
-  $('#btn-export')?.addEventListener('click', exportNotices);
-  $('#btn-create')?.addEventListener('click', openCreate);
-
-  $('table.data').addEventListener('click', (event) => {
-    const button = event.target.closest('[data-act]');
-    if (!button) return;
-    const row = table.find(Number(button.closest('tr')?.dataset.id));
-    if (!row) return;
-    const act = button.dataset.act;
-    if (act === 'edit') openEdit(row);
-    else if (act === 'publish') changeStatus(row, 'publish');
-    else if (act === 'unpublish') changeStatus(row, 'unpublish');
-    else if (act === 'delete') remove(row);
-  });
-
-  $('#notice-form').addEventListener('submit', submit);
-}
-
-function openCreate() {
-  editing = null;
-  const form = $('#notice-form');
-  resetForm(form);
-  $('#notice-modal-title').textContent = '新建公告';
-  $$('[data-create-only]', form).forEach((node) => node.classList.remove('hidden'));
-  form.elements.status.value = 'draft';
-  openModal('notice-modal');
-}
-
-function openEdit(row) {
-  editing = row;
-  const form = $('#notice-form');
-  resetForm(form);
-  $('#notice-modal-title').textContent = `编辑公告 ${row.title}`;
-  $$('[data-create-only]', form).forEach((node) => node.classList.add('hidden'));
-  fillForm(form, { title: row.title, content: row.content, is_top: row.is_top });
-  openModal('notice-modal');
-}
-
-async function submit(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!validateForm(form)) return;
-  const values = serializeForm(form);
-  const button = $('#notice-submit');
-  setLoading(button, true);
-  try {
-    if (editing) {
-      await api.put(`/content/notices/${editing.id}`, {
-        title: values.title,
-        content: values.content,
-        is_top: values.is_top,
-      });
-      toast('公告已更新', 'success');
-    } else {
-      await api.post('/content/notices', {
-        title: values.title,
-        content: values.content,
-        status: values.status,
-        is_top: values.is_top,
-      });
-      toast('公告已创建', 'success');
-    }
-    closeModal('notice-modal');
-    table.reload();
-  } catch {
-    /* 请求层已提示 */
-  } finally {
-    setLoading(button, false);
-  }
 }
 
 async function changeStatus(row, action) {
@@ -131,33 +89,17 @@ async function changeStatus(row, action) {
   try {
     await api.post(`/content/notices/${row.id}/${action}`);
     toast(action === 'publish' ? '公告已发布' : '公告已下线', 'success');
-    table.reload();
+    page.table.reload();
   } catch {
     /* 请求层已提示 */
   }
 }
 
-async function remove(row) {
-  const ok = await confirmDialog({
-    title: '删除公告',
-    message: `确认删除公告「${row.title}」？`,
-    okText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await api.del(`/content/notices/${row.id}`);
-    toast('公告已删除', 'success');
-    table.reload();
-  } catch {
-    /* 请求层已提示 */
-  }
-}
-
+/** 导出要带上当前筛选条件，否则「导出的和看到的不一致」 */
 async function exportNotices() {
   try {
-    await download('/export/notices', 'notices.csv', { params: table.params });
-    toast('导出已开始', 'success');
+    await download('/export/notices', 'notices.csv', { params: page.table.params });
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }

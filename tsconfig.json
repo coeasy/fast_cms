@@ -1,0 +1,15 @@
+{
+  "//": "前端类型检查（10-2）。只校验不产出：checkJs 让 tsc 把 JSDoc 当类型用，noEmit 保证它永远不生成任何文件，也就不进运行时、不进发布包。node --test 已经是 CI 的 Node 依赖，这里复用同一条链路，不在本地开发流程强制。include 只圈 core/ 与 ui/——页面脚本依赖服务端返回的动态形状，先不在这一轮圈进来。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["backend/app/web/static/js/core/**/*.js", "backend/app/web/static/js/ui/**/*.js", "backend/app/web/static/js/ui.js"]
+}

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.envelope import StrictModel
 
 HEX_COLOR = r"^#[0-9a-fA-F]{6}$"
 THEME_CODE = r"^[a-z][a-z0-9-]*$"
@@ -65,3 +67,25 @@ class ThemeUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=255)
     config: ThemeConfig | None = None
     sort: int | None = Field(default=None, ge=0, le=9999)
+
+
+class ThemeOut(StrictModel):
+    id: int
+    code: str
+    name: str
+    description: str | None = None
+    # 主题配置是开放键值集合（随模板演进），这里不做逐字段约束
+    config: dict[str, Any]
+    is_builtin: bool
+    # 当前启用的主题；前端主题管理页据此定位 activeTheme，不必再打一次 public 接口
+    is_active: bool = False
+    sort: int
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class PublicThemeOut(StrictModel):
+    """前台主题：``active`` 为当前启用项，库为空时可能是 None。"""
+
+    active: ThemeOut | None = None
+    items: list[ThemeOut]

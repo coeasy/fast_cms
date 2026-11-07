@@ -7,6 +7,7 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 
 set "PY="
+set "PYARGS="
 if exist "backend\.venv\Scripts\python.exe" set "PY=backend\.venv\Scripts\python.exe"
 if defined PY goto run
 
@@ -15,7 +16,10 @@ if not errorlevel 1 set "PY=python"
 if defined PY goto run
 
 where py >nul 2>nul
-if not errorlevel 1 set "PY=py -3"
+if not errorlevel 1 (
+  set "PY=py"
+  set "PYARGS=-3"
+)
 if defined PY goto run
 
 echo Python 3.12+ not found. Install it and add it to PATH.
@@ -23,7 +27,7 @@ pause
 exit /b 1
 
 :run
-%PY% scripts\start.py %*
+"%PY%" %PYARGS% scripts\start.py %*
 set "CODE=%ERRORLEVEL%"
 if not "%CODE%"=="0" (
   echo.

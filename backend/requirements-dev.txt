@@ -1,0 +1,22 @@
+# Fast CMS 开发依赖（在 requirements.txt 之上追加测试与静态检查工具）
+#
+#     python -m pip install -r backend/requirements-dev.txt
+#
+# 只跑服务不需要本文件，用 requirements.txt 即可。
+
+-r requirements.txt
+
+# --- 测试 ---
+pytest>=8,<10
+pytest-asyncio>=0.24,<2
+fakeredis>=2.26,<3
+# B-11：属性测试（neutralize_cell / safe_title 等规则简单、输入空间大的函数）
+hypothesis>=6.100,<7
+
+# --- 静态检查 ---
+ruff>=0.9,<1
+mypy>=1.14,<2
+types-psutil>=6,<8
+
+# --- 供应链安全（Phase 0-2：依赖漏洞扫描门禁） ---
+pip-audit>=2.7,<3

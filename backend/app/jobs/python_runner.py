@@ -24,17 +24,16 @@ class PythonJobError(RuntimeError):
 
 def validate_python_script(source: str | None) -> None:
     if not source or not source.strip():
-        raise AppError("SCHEDULE_SCRIPT_REQUIRED", "Python 脚本不能为空", 422)
+        raise AppError("SCHEDULE_SCRIPT_REQUIRED", status_code=422)
     if len(source) > SCRIPT_LIMIT:
-        raise AppError("SCHEDULE_SCRIPT_TOO_LARGE", "Python 脚本超过大小限制", 422)
+        raise AppError("SCHEDULE_SCRIPT_TOO_LARGE", status_code=422)
     try:
         compile(source, "<fastcms-job>", "exec", dont_inherit=True)
     except SyntaxError as exc:
-        line = f"第 {exc.lineno} 行" if exc.lineno else "未知行"
         raise AppError(
             "SCHEDULE_SCRIPT_INVALID",
-            f"Python 脚本语法错误（{line}）：{exc.msg}",
-            422,
+            status_code=422,
+            params={"line": exc.lineno or "?", "msg": exc.msg},
         ) from exc
 
 
@@ -105,17 +104,13 @@ async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
         else:
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except (ProcessLookupError, FileNotFoundError, OSError):
-        try:
+        with suppress(ProcessLookupError):
             process.kill()
-        except ProcessLookupError:
-            pass
     try:
         await asyncio.wait_for(process.wait(), timeout=KILL_WAIT_TIMEOUT)
     except TimeoutError:
-        try:
+        with suppress(ProcessLookupError):
             process.kill()
-        except ProcessLookupError:
-            pass
         # 仍收不到退出码就放弃等待：租约与调度状态不能被子进程拖死
         with suppress(TimeoutError):
             await asyncio.wait_for(process.wait(), timeout=KILL_WAIT_TIMEOUT)

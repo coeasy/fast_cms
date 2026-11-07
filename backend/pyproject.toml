@@ -16,6 +16,8 @@ dependencies = [
   "pydantic-settings>=2.7,<3",
   "aiosqlite>=0.20,<1",
   "aiomysql>=0.2,<1",
+  # scripts/mysql_smoke.py 用同步驱动直连做连通性检查，需显式声明而非依赖 aiomysql 传递
+  "pymysql>=1.1,<2",
   "APScheduler>=3.10,<4",
   # 系统时区在启动时就要校验 IANA 时区名，镜像里没有 /usr/share/zoneinfo 时靠它兜底，
   # 不能只靠 tzlocal 的传递依赖
@@ -41,12 +43,26 @@ dev = [
   "mypy>=1.14,<2",
   "types-psutil>=6,<8",
   "fakeredis>=2.26,<3",
+  # CI 的 test job 用 `pip install -e ".[dev]"`：漏了这两项会让
+  # test_property_fuzz.py 收集失败、security gate 静默跳过（等于没跑）。
+  "hypothesis>=6.100,<7",
+  "pip-audit>=2.7,<3",
 ]
 
 [tool.mypy]
 python_version = "3.12"
 no_implicit_optional = true
 warn_redundant_casts = true
+warn_unused_ignores = true
+
+# B-3 一期档：core/ + kernel/ 全部函数必须有类型注解（其余模块分档推进，二期再全量）。
+# 立即档的 check_untyped_defs / disallow_incomplete_defs 也只对 core/+kernel/ 生效——
+# 全量放开会让所有未注解返回的 FastAPI 处理器报错（大量噪音），违背「先 core/+kernel/ 再全量」。
+[[tool.mypy.overrides]]
+module = ["app.core", "app.core.*", "app.kernel", "app.kernel.*"]
+disallow_untyped_defs = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
 
 # 这两个库未发布类型信息；psutil 由 types-psutil 提供存根
 [[tool.mypy.overrides]]
@@ -58,8 +74,12 @@ include = ["app*"]
 
 # 页面模板与静态资源是后端的一部分：非 editable 安装（wheel）也必须带上，
 # 否则装完页面 500、静态资源 404。editable 安装直接从源码读取，不受影响。
+# 同理，代码生成器的 .j2 模板与 ip2region 的 xdb 数据也必须进包，
+# 否则「能启动但功能静默失效」——比直接报错更难排查。
 [tool.setuptools.package-data]
 "app.web" = ["templates/**/*.html", "static/**/*.css", "static/**/*.js", "static/**/*.svg"]
+"app.codegen" = ["templates/*.j2"]
+"app.ip_data" = ["*.xdb"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -72,5 +92,31 @@ target-version = "py312"
 line-length = 110
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+# B-3 立即档 + 一期档：bugbear / 简化 / 重复键 / 单例比较 / 杂项 / 未用参数 / 可返回
+select = ["E", "F", "I", "UP", "B", "C4", "PIE", "SIM", "RUF", "ARG", "RET"]
+# E501 行宽；RUF001/002/003 是「歧义 Unicode」——全角中文标点是本项目的正常写法，不适用
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
+# 下划线前缀的参数视为「有意不使用的依赖注入槽位」（如 FastAPI 的 _ctx）
+dummy-variable-rgx = "^_"
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 的依赖注入参数在默认值里调用是惯用法，不是 B008 要抓的坏味道
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+  "fastapi.Path",
+  "fastapi.Body",
+  "fastapi.Header",
+  "fastapi.Cookie",
+  "fastapi.Form",
+  "fastapi.File",
+  "fastapi.Security",
+  "fastapi.BackgroundTasks",
+]
+
+[tool.ruff.lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[tool.ruff.lint.per-file-ignores]
+# pytest 按参数名注入 fixture，无法改名；未用的 fixture 参数是「仅作 setup 副作用」的合法写法
+"tests/**" = ["ARG001", "ARG002"]

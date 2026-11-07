@@ -29,6 +29,10 @@ class NotifyDispatchArgs(BaseModel):
     limit: int = Field(default=20, ge=1, le=100, description="单次最多投递多少条待发送记录")
 
 
+class EventOutboxDrainArgs(BaseModel):
+    limit: int = Field(default=100, ge=1, le=500, description="单次最多派发多少条待投递事件")
+
+
 @dataclass(frozen=True)
 class JobDefinition[ArgsT: BaseModel]:
     code: str
@@ -36,6 +40,10 @@ class JobDefinition[ArgsT: BaseModel]:
     description: str
     args_model: type[ArgsT]
     handler: Callable[[ArgsT], Awaitable[str | None]]
+    # 高频 interval 任务（如通知投递，每 60 秒一轮）在「本轮无事可做」时返回 None，
+    # 并配合这个标记把本次执行日志删掉：否则一天 1440 条空日志会把任务日志页面刷满，
+    # 真正需要排查的失败记录反而被淹没。非空闲轮次照常留日志。
+    quiet_when_idle: bool = False
 
 
 REGISTRY: dict[str, JobDefinition] = {}
@@ -48,8 +56,14 @@ def register(definition: JobDefinition) -> None:
 def get_definition(code: str) -> JobDefinition:
     definition = REGISTRY.get(code)
     if definition is None:
-        raise AppError("SCHEDULE_JOB_UNKNOWN", "任务代码未在注册表中定义", 422)
+        raise AppError("SCHEDULE_JOB_UNKNOWN", status_code=422)
     return definition
+
+
+def is_quiet_when_idle(code: str) -> bool:
+    """任务是否声明「空闲轮次不留日志」。未注册的代码按 False 处理，不抛异常。"""
+    definition = REGISTRY.get(code)
+    return bool(definition is not None and definition.quiet_when_idle)
 
 
 def list_definitions() -> list[dict[str, Any]]:
@@ -69,7 +83,7 @@ def validate_args(code: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         return definition.args_model.model_validate(args or {}).model_dump()
     except ValidationError as exc:
-        raise AppError("SCHEDULE_JOB_ARGS_INVALID", "任务参数不合法", 422, exc.errors()) from exc
+        raise AppError("SCHEDULE_JOB_ARGS_INVALID", status_code=422, details=exc.errors()) from exc
 
 
 async def execute_job(code: str, args: dict[str, Any]) -> str | None:
@@ -79,7 +93,7 @@ async def execute_job(code: str, args: dict[str, Any]) -> str | None:
 
 
 def _load_builtins() -> None:
-    from app.jobs import builtin  # noqa: F401  (registers handlers on import)
+    from app.jobs import builtin
 
     builtin.register_builtins()
 

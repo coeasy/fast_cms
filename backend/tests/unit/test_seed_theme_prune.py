@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import _seed_themes
 from app.db.session import session_scope
-from app.modules.config.models import SystemConfig
+from app.modules.sys.config.models import SystemConfig
 from app.modules.theme.models import ThemeTemplate
 
 RETIRED_CODE = "legacy-finance-dark"

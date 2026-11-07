@@ -275,7 +275,7 @@ async def locate_many(ips: Iterable[str | None]) -> dict[str, IpLocation | None]
 
     返回 ``{ip: location}``，调用方按原始 IP 取值；查不到的 IP 值为 ``None``。
     """
-    unique = [text for text in {ip.strip() for ip in ips if ip and ip.strip()}]
+    unique = list({ip.strip() for ip in ips if ip and ip.strip()})
     if not unique:
         return {}
     found = await asyncio.gather(*(locate(ip) for ip in unique))
@@ -308,20 +308,24 @@ async def startup() -> None:
 
 
 def describe() -> dict[str, Any]:
-    """查询界面与排障用：策略、数据文件与加载状态。"""
+    """查询界面与排障用：策略、数据文件与加载状态。
+
+    只输出可序列化的摘要字段。``_STATE.entries`` 里除了这些还挂着 ``searcher`` /
+    ``vector_index``（xdb 的 buffer 是 bytes），直接返回会让响应无法 JSON 编码
+    （``UnicodeDecodeError``），且把内部对象暴露给调用方。
+    """
     _ensure_ready()
     return {
         "enabled": settings.ip2region_enabled,
         "policy": settings.ip2region_cache_policy,
         "data_dir": str(settings.ip2region_dir),
-        "versions": list(_STATE.entries.values()),
+        "versions": [
+            {
+                "version": item["version"],
+                "path": item["path"],
+                "size_bytes": item["size_bytes"],
+                "loaded": item["loaded"],
+            }
+            for item in _STATE.entries.values()
+        ],
     }
-
-
-def _reset() -> None:
-    """测试用：清空状态与缓存，模拟「未加载 / 已加载」两种起点。"""
-    with _STATE.lock:
-        _STATE.ready = False
-        _STATE.entries = {}
-    _search.cache_clear()
-    _LOCAL.searchers = {}

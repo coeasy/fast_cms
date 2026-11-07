@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.codegen.generator import CodeGenerator
 from app.core.errors import AppError
+from app.web.assets import asset_version
 from app.web.router import WEB_DIR
 
 # 页面脚本里用 $('#xxx') / querySelector('#xxx') 取的 id
@@ -27,7 +28,7 @@ def _run(coroutine):
 
 async def _make_generator(directory: Path) -> CodeGenerator:
     engine = create_async_engine(f"sqlite+aiosqlite:///{(directory / 'codegen.db').as_posix()}")
-    async with engine.begin() as connection:  # noqa: SIM117
+    async with engine.begin() as connection:
         await connection.execute(
             text(
                 "CREATE TABLE demo_article ("
@@ -58,6 +59,7 @@ def test_generate_crud_files() -> None:
         finally:
             _run(generator.engine.dispose())
         assert set(files) == {
+            "module.py",
             "model.py",
             "schemas.py",
             "service.py",
@@ -151,6 +153,9 @@ def test_generated_frontend_page_renders_with_component_library() -> None:
     files = _generate_sample()
 
     env = Environment(loader=FileSystemLoader(str(WEB_DIR / "templates")), autoescape=True)
+    # 生成的 page.html extends base.html，而 base.html 引用了 asset_v 全局（静态资源版本号）；
+    # 线上由 app.web.router 的 templates 环境提供，这里手工注册以保持等价
+    env.globals["asset_v"] = asset_version
     html = env.from_string(files["frontend/page.html"]).render(
         base="/admin/",
         admin_base="/admin",
@@ -167,8 +172,9 @@ def test_generated_frontend_page_renders_with_component_library() -> None:
     )
 
     # 分层样式：base.css 来自 base.html，admin.css 来自 layouts/admin.html
-    assert 'href="/admin/static/css/base.css"' in html
-    assert 'href="/admin/static/css/admin.css"' in html
+    # 静态资源统一带 ?v= 版本号，因此断言到 "?v=" 为止
+    assert 'href="/admin/static/css/base.css?v=' in html
+    assert 'href="/admin/static/css/admin.css?v=' in html
     assert 'class="portal-nav"' not in html
 
     # 组件宏都正常展开

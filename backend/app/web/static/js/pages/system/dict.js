@@ -1,8 +1,35 @@
 import {
-  $, $$, api, can, closeModal, confirmDialog, download, esc, fillForm, openModal, resetForm,
-  serializeForm, setLoading, statusTag, STATUS_MAP, toast, validateForm,
-} from '../../core.js';
+  $,
+  $$,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  fillForm,
+  resetForm,
+  serializeForm,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  renderState,
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import { actionButtons, emptyState } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let types = [];
 let currentType = null;
@@ -56,7 +83,7 @@ function bind() {
 
 async function loadTypes(selectId) {
   const host = $('#type-list');
-  host.innerHTML = '<li><div class="loading-block"><span class="spinner"></span></div></li>';
+  renderState(host, { state: 'loading', wrap: 'li' });
   try {
     types = await api.get('/system/dict-types');
     renderTypes();
@@ -68,7 +95,7 @@ async function loadTypes(selectId) {
       renderItems();
     }
   } catch (error) {
-    host.innerHTML = `<li><div class="table-empty">${esc(error?.message || '加载失败')}</div></li>`;
+    renderState(host, { state: 'error', message: error?.message, wrap: 'li' });
   }
 }
 
@@ -77,7 +104,7 @@ function renderTypes() {
   const count = $('#type-count');
   if (count) count.textContent = `${types.length} 个`;
   if (!types.length) {
-    host.innerHTML = '<li><div class="table-empty">暂无字典类型</div></li>';
+    renderState(host, { state: 'empty', emptyText: '暂无字典类型', wrap: 'li' });
     return;
   }
   host.innerHTML = types
@@ -110,19 +137,19 @@ async function selectType(type) {
 async function loadItems() {
   if (!currentType) return;
   const tbody = $('#item-rows');
-  tbody.innerHTML = `<tr><td colspan="7"><div class="loading-block"><span class="spinner"></span></div></td></tr>`;
+  renderState(tbody, { state: 'loading', colspan: 7 });
   try {
     items = await api.get(`/system/dict-types/${currentType.id}/items`);
     renderItems();
   } catch (error) {
-    tbody.innerHTML = `<tr><td colspan="7">${emptyState(error?.message || '加载失败')}</td></tr>`;
+    renderState(tbody, { state: 'error', message: error?.message, colspan: 7 });
   }
 }
 
 function renderItems() {
   const tbody = $('#item-rows');
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="7">${emptyState('暂无字典项')}</td></tr>`;
+    renderState(tbody, { state: 'empty', emptyText: '暂无字典项', colspan: 7 });
     return;
   }
   tbody.innerHTML = items
@@ -165,10 +192,10 @@ async function submitType(event) {
     if (editingType) {
       delete values.code;
       await api.put(`/system/dict-types/${editingType.id}`, values);
-      toast('字典类型已更新', 'success');
+      toast(msg('dict.typeUpdated'), 'success');
     } else {
       await api.post('/system/dict-types', values);
-      toast('字典类型创建成功', 'success');
+      toast(msg('dict.typeCreated'), 'success');
     }
     closeModal('type-modal');
     await loadTypes(editingType?.id);
@@ -189,7 +216,7 @@ async function removeType(type) {
   if (!ok) return;
   try {
     await api.del(`/system/dict-types/${type.id}`);
-    toast('字典类型已删除', 'success');
+    toast(msg('dict.typeDeleted'), 'success');
     currentType = null;
     await loadTypes();
   } catch {
@@ -231,10 +258,10 @@ async function submitItem(event) {
   try {
     if (editingItem) {
       await api.put(`/system/dict-items/${editingItem.id}`, values);
-      toast('字典项已更新', 'success');
+      toast(msg('dict.itemUpdated'), 'success');
     } else {
       await api.post(`/system/dict-types/${currentType.id}/items`, values);
-      toast('字典项创建成功', 'success');
+      toast(msg('dict.itemCreated'), 'success');
     }
     closeModal('item-modal');
     await loadItems();
@@ -265,7 +292,7 @@ async function removeItem(item) {
   if (!ok) return;
   try {
     await api.del(`/system/dict-items/${item.id}`);
-    toast('字典项已删除', 'success');
+    toast(msg('dict.itemDeleted'), 'success');
     await loadItems();
     await refreshTypeCounts();
   } catch {
@@ -278,7 +305,7 @@ async function removeItem(item) {
 async function showEffective() {
   if (!currentType) return;
   const body = $('#effective-body');
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('effective-modal');
   try {
     const data = await api.get(`/system/dicts/${encodeURIComponent(currentType.code)}`);
@@ -292,7 +319,7 @@ async function showEffective() {
           : emptyState('该字典没有启用项')
       }`;
   } catch (error) {
-    body.innerHTML = emptyState(error?.message || '加载失败');
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 
@@ -300,7 +327,7 @@ async function showEffective() {
 async function exportDicts() {
   try {
     await download('/export/dicts', 'dicts.csv');
-    toast('导出已开始', 'success');
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }

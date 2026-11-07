@@ -1,8 +1,29 @@
 import {
-  $, api, closeModal, confirmDialog, copyText, esc, formatTime, openModal,
-  serializeForm, setLoading, toast,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  serializeForm,
+  setLoading
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  copyText
+} from '../../core/other.js';
+import { can } from '../../core/permission.js';
 import { DataTable, actionButtons, tag } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 const STATUS_MAP = { active: ['启用', 'green'], disabled: ['停用', 'gray'] };
 
@@ -36,8 +57,11 @@ export async function init() {
         className: 'actions',
         render: (row) =>
           actionButtons([
-            { act: 'toggle', label: row.status === 'active' ? '停用' : '启用' },
-            { act: 'delete', label: '删除', danger: true },
+            can('security:api-key:update') && {
+              act: 'toggle',
+              label: row.status === 'active' ? '停用' : '启用',
+            },
+            can('security:api-key:delete') && { act: 'delete', label: '删除', danger: true },
           ]),
       },
     ],
@@ -77,7 +101,7 @@ async function submitKey(event) {
   event.preventDefault();
   const values = serializeForm(event.currentTarget);
   if (!values.name) {
-    toast('请填写名称', 'warning');
+    toast(msg('apiKey.requireName'), 'warning');
     return;
   }
   const button = $('#key-submit');
@@ -116,7 +140,7 @@ async function copySecret() {
   try {
     await copyText(key);
   } catch {
-    toast('复制失败，请手动选择文本复制', 'warning');
+    toast(msg('common.copyFailed'), 'warning');
   }
 }
 
@@ -141,7 +165,7 @@ async function removeKey(row) {
   if (!ok) return;
   try {
     await api.del(`/security/api-keys/${row.id}`);
-    toast('API Key 已删除', 'success');
+    toast(msg('apiKey.deleted'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */

@@ -1,8 +1,33 @@
 import {
-  $, api, can, closeModal, confirmDialog, esc, formatTime, openModal, serializeForm,
-  setLoading, statusTag, STATUS_MAP, toast,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  serializeForm,
+  setLoading
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  renderState,
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import { DataTable, actionButtons } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let table;
 
@@ -57,7 +82,7 @@ function bind() {
 
 async function showDetail(id) {
   const body = $('#detail-body');
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('detail-modal');
   try {
     const row = await api.get(`/notify/records/${id}`);
@@ -81,7 +106,7 @@ async function showDetail(id) {
       <div class="tiny muted mb-8">消息正文</div>
       <pre class="code">${esc(row.content || '（无正文）')}</pre>`;
   } catch (error) {
-    body.innerHTML = `<div class="table-empty">${esc(error?.message || '加载失败')}</div>`;
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 
@@ -109,7 +134,7 @@ async function cleanup(event) {
   event.preventDefault();
   const days = Number($('#cleanup-days').value || 30);
   if (!Number.isFinite(days) || days < 1) {
-    toast('保留天数必须大于 0', 'warning');
+    toast(msg('common.retentionPositive'), 'warning');
     return;
   }
   const ok = await confirmDialog({

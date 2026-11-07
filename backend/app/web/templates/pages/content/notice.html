@@ -11,7 +11,7 @@
 {% call ui.card() %}
   {% call ui.filter_form() %}
     {{ ui.filter_input('关键词', 'keyword', placeholder='标题') }}
-    {{ ui.filter_select('状态', 'status', [('draft', '草稿'), ('published', '已发布')]) }}
+    {{ ui.filter_select('状态', 'status', [('draft', '草稿'), ('published', '已发布'), ('offline', '已下线')]) }}
   {% endcall %}
 
   {{ ui.data_table([

@@ -4,7 +4,7 @@
    ========================================================================== #}
 {% extends "base.html" %}
 
-{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/portal.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ base }}static/css/portal.css?v={{ asset_v() }}">{% endblock %}
 
 {% block body %}
 <div class="portal">

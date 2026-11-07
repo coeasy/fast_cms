@@ -7,6 +7,8 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 
 set "PY="
+rem PYARGS 只用于 `py -3` 这类「解释器 + 版本参数」；单独存，才能给 %PY% 加引号
+set "PYARGS="
 if exist "backend\.venv\Scripts\python.exe" set "PY=backend\.venv\Scripts\python.exe"
 if defined PY goto run
 
@@ -31,7 +33,10 @@ if not errorlevel 1 set "PY=python"
 if defined PY goto run
 
 where py >nul 2>nul
-if not errorlevel 1 set "PY=py -3"
+if not errorlevel 1 (
+  set "PY=py"
+  set "PYARGS=-3"
+)
 if defined PY goto run
 
 echo 未找到 Python 3.12+，也没有检测到 Miniconda/Anaconda。
@@ -41,7 +46,7 @@ exit /b 1
 
 :run
 echo 使用解释器：%PY%
-%PY% scripts\install.py %*
+"%PY%" %PYARGS% scripts\install.py %*
 set "CODE=%ERRORLEVEL%"
 if not "%CODE%"=="0" (
   echo.

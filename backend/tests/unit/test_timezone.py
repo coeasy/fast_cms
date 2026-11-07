@@ -17,7 +17,7 @@ from app.core.tz import (
     to_system,
     zone,
 )
-from app.modules.config.service import TIMEZONE_CONFIG_KEY, _check_timezone
+from app.modules.sys.config.service import TIMEZONE_CONFIG_KEY, _check_timezone
 
 # 1 月不会被任何时区的夏令时干扰，断言偏移量才稳定
 UTC_INSTANT = datetime(2026, 1, 9, 1, 30, tzinfo=UTC)

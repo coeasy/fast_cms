@@ -1,7 +1,25 @@
 import {
-  $, api, can, confirmDialog, esc, formatTime, serializeForm, toast,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  confirmDialog,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  serializeForm
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
 import { DataTable } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let table;
 
@@ -42,7 +60,8 @@ export async function init() {
   $('table.data').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-act="kick"]');
     if (!button) return;
-    const row = table.find(Number(button.closest('tr')?.dataset.id));
+    // 会话 id 是字符串（UUID 形态），不能转 Number：转完 table.find 永远找不到行
+    const row = table.find(button.closest('tr')?.dataset.id);
     if (!row) return;
     const ok = await confirmDialog({
       title: '强制下线',
@@ -53,7 +72,7 @@ export async function init() {
     if (!ok) return;
     try {
       await api.del(`/monitor/online/${encodeURIComponent(row.id)}`);
-      toast('该会话已下线', 'success');
+      toast(msg('online.kicked'), 'success');
       table.reload();
     } catch {
       /* 请求层已提示 */

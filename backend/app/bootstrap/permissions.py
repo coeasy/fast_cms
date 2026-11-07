@@ -56,6 +56,7 @@ PERMISSIONS: list[dict[str, str]] = [
     {"code": "monitor:operation-log:list", "name": "查看操作日志", "module": "monitor"},
     {"code": "monitor:operation-log:delete", "name": "清理操作日志", "module": "monitor"},
     {"code": "monitor:operation-log:export", "name": "导出操作日志", "module": "monitor"},
+    {"code": "monitor:event-log:list", "name": "查看事件投递日志", "module": "monitor"},
     {"code": "schedule:job:list", "name": "查看任务", "module": "schedule"},
     {"code": "schedule:job:create", "name": "创建任务", "module": "schedule"},
     {"code": "schedule:job:update", "name": "更新任务", "module": "schedule"},
@@ -113,3 +114,24 @@ def is_read_only(code: str) -> bool:
 
 
 READ_ONLY_PERMISSIONS = frozenset(code for code in PERMISSION_CODES if is_read_only(code))
+
+
+def all_permissions() -> list[dict[str, str]]:
+    """基线权限码 + 各模块 ``module.py`` 声明的增量权限码。
+
+    存量的 97 条留在本文件：它们是既有对外契约，逐条搬进各模块只会制造
+    review 噪音。新模块不必改本文件，在自己的清单里声明即可。
+
+    延迟导入 ``app.core.module``：本模块会被 ``bootstrap.seed`` 在很早期导入，
+    提前触发模块发现会把所有 router 一起拉进来，容易形成导入环。
+    """
+    from app.core.module import module_permissions
+
+    merged: dict[str, dict[str, str]] = {item["code"]: item for item in PERMISSIONS}
+    for item in module_permissions():
+        merged.setdefault(item["code"], item)
+    return list(merged.values())
+
+
+def all_permission_codes() -> frozenset[str]:
+    return frozenset(item["code"] for item in all_permissions())

@@ -23,6 +23,10 @@ from app.core.errors import AppError
 
 # 单次导入的行数上限。再大的量应该分文件导，否则一条记录失败要重跑整包。
 MAX_IMPORT_ROWS = 500
+# 单次导入的字节上限。与行数上限分开：一行超长的 CSV 也能把内存打满，
+# 只限行数挡不住。错误文案里的 MB 数由这里算出来，改上限不用同步改文案。
+MAX_IMPORT_BYTES = 8 * 1024 * 1024
+MAX_IMPORT_MB = MAX_IMPORT_BYTES // (1024 * 1024)
 
 
 def decode_csv(raw: bytes) -> str:
@@ -32,7 +36,7 @@ def decode_csv(raw: bytes) -> str:
             return raw.decode(encoding)
         except UnicodeDecodeError:
             continue
-    raise AppError("IMPORT_ENCODING", "无法识别文件编码，请另存为 UTF-8 或 GBK 编码的 CSV", 422)
+    raise AppError("IMPORT_ENCODING", status_code=422)
 
 
 def read_rows(
@@ -50,8 +54,8 @@ def read_rows(
     """
     if not raw or not raw.strip():
         raise AppError("IMPORT_EMPTY", "文件没有内容", 422)
-    if len(raw) > 8 * 1024 * 1024:
-        raise AppError("IMPORT_TOO_LARGE", "导入文件不能超过 8 MB", 413)
+    if len(raw) > MAX_IMPORT_BYTES:
+        raise AppError("IMPORT_TOO_LARGE", status_code=413, params={"mb": MAX_IMPORT_MB})
 
     text = decode_csv(raw)
     reader = csv.reader(io.StringIO(text))
@@ -85,8 +89,8 @@ def read_rows(
         if len(rows) >= max_rows:
             raise AppError(
                 "IMPORT_TOO_MANY_ROWS",
-                f"单次最多导入 {max_rows} 行，请分批",
-                422,
+                status_code=422,
+                params={"max_rows": max_rows},
             )
         row: dict[str, str] = {}
         for index, field in enumerate(canonical):

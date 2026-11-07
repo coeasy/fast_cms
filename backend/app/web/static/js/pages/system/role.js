@@ -1,8 +1,35 @@
 import {
-  $, $$, api, can, closeModal, confirmDialog, download, esc, fillForm, openModal, resetForm,
-  serializeForm, setLoading, statusTag, STATUS_MAP, toast, validateForm,
-} from '../../core.js';
+  $,
+  $$,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  fillForm,
+  resetForm,
+  serializeForm,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  renderState,
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import { DataTable, actionButtons, fillMultiSelect, selectedValues, treeOptions } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 const SCOPE_LABELS = {
   all: { label: '全部数据', color: 'blue' },
@@ -130,10 +157,10 @@ async function submitRole(event) {
     if (editing) {
       delete values.code;
       await api.put(`/system/roles/${editing.id}`, values);
-      toast('角色已更新', 'success');
+      toast(msg('role.updated'), 'success');
     } else {
       await api.post('/system/roles', values);
-      toast('角色创建成功', 'success');
+      toast(msg('role.created'), 'success');
     }
     closeModal('role-modal');
     table.reload();
@@ -150,7 +177,7 @@ async function openPerm(row) {
   permTarget = row;
   $('#perm-modal-title').textContent = `分配权限：${row.name}`;
   const host = $('#perm-tree');
-  host.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(host, { state: 'loading' });
   openModal('perm-modal');
   try {
     if (!registry.items?.length) {
@@ -203,7 +230,7 @@ async function openPerm(row) {
     });
     updateCount();
   } catch (error) {
-    host.innerHTML = `<div class="table-empty">${esc(error?.message || '权限清单加载失败')}</div>`;
+    renderState(host, { state: 'error', message: error?.message });
   }
 }
 
@@ -221,7 +248,7 @@ async function submitPerm() {
   setLoading(button, true);
   try {
     await api.put(`/system/roles/${permTarget.id}/permissions`, { permission_codes: codes });
-    toast('权限已保存', 'success');
+    toast(msg('role.permissionsSaved'), 'success');
     closeModal('perm-modal');
     table.reload();
   } catch {
@@ -269,7 +296,7 @@ async function submitScope(event) {
   setLoading(button, true);
   try {
     await api.put(`/system/roles/${scopeTarget.id}/data-scope`, payload);
-    toast('数据范围已更新', 'success');
+    toast(msg('role.dataScopeUpdated'), 'success');
     closeModal('scope-modal');
     table.reload();
   } catch {
@@ -289,7 +316,7 @@ async function remove(row) {
   if (!ok) return;
   try {
     await api.del(`/system/roles/${row.id}`);
-    toast('角色已删除', 'success');
+    toast(msg('role.deleted'), 'success');
     table.reload();
   } catch {
     /* 请求层已提示 */
@@ -299,7 +326,7 @@ async function remove(row) {
 async function exportRoles() {
   try {
     await download('/export/roles', 'roles.csv', { params: table.params });
-    toast('导出已开始', 'success');
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }

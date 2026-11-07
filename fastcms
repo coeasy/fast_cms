@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+# Fast CMS 统一命令行入口（Linux / macOS）
+# 用法：./fastcms init --server
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$ROOT"
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+
+PYTHON=""
+if [ -x "backend/.venv/bin/python" ]; then
+  PYTHON="backend/.venv/bin/python"
+elif [ -x "backend/.venv/Scripts/python.exe" ]; then
+  PYTHON="backend/.venv/Scripts/python.exe"
+else
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      PYTHON="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$PYTHON" ]; then
+  echo "未找到 python3 / python，请先安装 Python 3.12+。" >&2
+  exit 1
+fi
+
+exec "$PYTHON" scripts/fastcms.py "$@"

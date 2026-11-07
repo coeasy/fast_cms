@@ -1,8 +1,34 @@
 import {
-  $, api, closeModal, confirmDialog, download, endOfDayIso, esc, formatMs, formatTime, openModal,
-  serializeForm, setLoading, startOfDayIso, toast,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  serializeForm,
+  setLoading
+} from '../../core/form.js';
+import {
+  endOfDayIso,
+  formatTime,
+  startOfDayIso
+} from '../../core/time.js';
+import {
+  formatMs
+} from '../../core/format.js';
+import {
+  renderState
+} from '../../core/other.js';
 import { DataTable, actionButtons, bindBatchBar } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let table;
 
@@ -80,7 +106,7 @@ function query(form) {
 
 async function showDetail(id) {
   const body = $('#detail-body');
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('detail-modal');
   try {
     const row = await api.get(`/monitor/operation-logs/${id}`);
@@ -103,7 +129,7 @@ async function showDetail(id) {
         : ''
     }`;
   } catch (error) {
-    body.innerHTML = `<div class="table-empty">${esc(error?.message || '加载失败')}</div>`;
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 
@@ -114,7 +140,7 @@ function desc(key, value, full = false) {
 async function exportCsv() {
   try {
     await download('/monitor/operation-logs/export', 'operation-logs.csv', { params: query($('#filters')) });
-    toast('导出已开始', 'success');
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }
@@ -124,7 +150,7 @@ async function cleanup(event) {
   event.preventDefault();
   const days = Number($('#cleanup-days').value || 90);
   if (!Number.isFinite(days) || days < 7 || days > 3650) {
-    toast('保留天数需在 7-3650 之间', 'warning');
+    toast(msg('common.retentionRange'), 'warning');
     return;
   }
   const ok = await confirmDialog({

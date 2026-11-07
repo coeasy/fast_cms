@@ -340,6 +340,8 @@ html[data-layout="top"] .sider { display: none; }
 html[data-layout="top"] .topnav { display: flex; }
 html[data-layout="top"] #brand-top { display: flex; }
 html[data-layout="top"] .crumbs { display: none; }
+html[data-breadcrumb="0"] .crumbs { display: none; }
+html[data-fixed-header="0"] .header { position: static; }
 
 /* ------------------------------ 响应式 ------------------------------ */
 

@@ -47,4 +47,3 @@ export function icon(name, size = 16) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
 
-export const ICON_NAMES = Object.keys(P);

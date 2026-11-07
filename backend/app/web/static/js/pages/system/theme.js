@@ -1,8 +1,35 @@
 import {
-  $, $$, api, applyTheme, can, closeModal, confirmDialog, DEFAULT_THEME, DEFAULT_THEME_CODE,
-  esc, fillForm, openModal, resetForm, setLoading, themeState, toast, validateForm,
-} from '../../core.js';
+  $,
+  $$,
+  esc
+} from '../../core/base.js';
+import {
+  closeModal,
+  confirmDialog,
+  openModal,
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  can
+} from '../../core/permission.js';
+import {
+  fillForm,
+  resetForm,
+  setLoading,
+  validateForm
+} from '../../core/form.js';
+import {
+  applyTheme,
+  DEFAULT_THEME,
+  DEFAULT_THEME_CODE,
+  themeState
+} from '../../core/theme.js';
 import { actionButtons } from '../../ui.js';
+import { renderState } from '../../core/other.js';
+import { msg } from '../../core/messages.js';
 
 const OPTIONAL_COLORS = ['colorBgLayout', 'colorBgContainer', 'colorBgSider', 'colorBgHeader'];
 
@@ -56,7 +83,7 @@ function bind() {
 
 async function load() {
   const host = $('#theme-grid');
-  host.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(host, { state: 'loading' });
   try {
     themes = await api.get('/system/themes');
     activeTheme = themes.find((item) => item.is_active) || null;
@@ -70,14 +97,14 @@ async function load() {
     }
     render();
   } catch (error) {
-    host.innerHTML = `<div class="card"><div class="table-empty">${esc(error?.message || '加载失败')}</div></div>`;
+    renderState(host, { state: 'error', message: error?.message, wrap: 'card' });
   }
 }
 
 function render() {
   const host = $('#theme-grid');
   if (!themes.length) {
-    host.innerHTML = '<div class="card"><div class="table-empty">暂无主题模板</div></div>';
+    renderState(host, { state: 'empty', emptyText: '暂无主题模板', wrap: 'card' });
     return;
   }
   host.innerHTML = themes
@@ -106,7 +133,7 @@ function render() {
           </div>
           <div class="small muted mt-8" style="min-height:40px">${esc(theme.description || '—')}</div>
           <div class="btn-row mt-8">
-            ${isActive ? '' : `<button class="btn btn-sm btn-primary" data-act="activate">应用</button>`}
+            ${isActive || !can('system:theme:update') ? '' : `<button class="btn btn-sm btn-primary" data-act="activate">应用</button>`}
             ${can('system:theme:update') ? '<button class="btn btn-sm" data-act="edit">编辑</button>' : ''}
             ${can('system:theme:delete') && !theme.is_builtin ? '<button class="btn btn-sm btn-danger" data-act="delete">删除</button>' : ''}
           </div>
@@ -226,12 +253,12 @@ async function submit(event) {
   try {
     if (editing) {
       await api.put(`/system/themes/${editing.id}`, payload);
-      toast('主题已更新', 'success');
+      toast(msg('theme.updated'), 'success');
     } else {
       payload.code = form.elements.code.value.trim();
       payload.sort = 0;
       await api.post('/system/themes', payload);
-      toast('主题创建成功', 'success');
+      toast(msg('theme.created'), 'success');
     }
     closeModal('theme-modal');
     await load();
@@ -264,7 +291,7 @@ async function remove(theme) {
   if (!ok) return;
   try {
     await api.del(`/system/themes/${theme.id}`);
-    toast('主题已删除', 'success');
+    toast(msg('theme.deleted'), 'success');
     await load();
   } catch {
     /* 请求层已提示 */

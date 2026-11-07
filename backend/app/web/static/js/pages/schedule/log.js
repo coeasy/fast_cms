@@ -1,7 +1,30 @@
 import {
-  $, api, download, esc, formatMs, formatTime, openModal, serializeForm, statusTag, STATUS_MAP,
-} from '../../core.js';
+  $,
+  esc
+} from '../../core/base.js';
+import {
+  openModal
+} from '../../core/dialog.js';
+import {
+  api,
+  download
+} from '../../core/request.js';
+import {
+  serializeForm
+} from '../../core/form.js';
+import {
+  formatTime
+} from '../../core/time.js';
+import {
+  formatMs
+} from '../../core/format.js';
+import {
+  renderState,
+  statusTag,
+  STATUS_MAP
+} from '../../core/other.js';
 import { DataTable, actionButtons } from '../../ui.js';
+import { msg } from '../../core/messages.js';
 
 let table;
 
@@ -48,7 +71,7 @@ export async function init() {
 
 async function showDetail(id) {
   const body = $('#detail-body');
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('detail-modal');
   try {
     const row = await api.get(`/schedule/job-logs/${id}`);
@@ -71,7 +94,7 @@ async function showDetail(id) {
       <div class="tiny muted mb-8">执行输出</div>
       <pre class="code">${esc(row.output || '（无输出）')}</pre>`;
   } catch (error) {
-    body.innerHTML = `<div class="table-empty">${esc(error?.message || '加载失败')}</div>`;
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 
@@ -82,7 +105,7 @@ function desc(key, value) {
 async function exportJobLogs() {
   try {
     await download('/export/job-logs', 'job-logs.csv', { params: table.params });
-    toast('导出已开始', 'success');
+    toast(msg('common.exportStarted'), 'success');
   } catch (error) {
     toast(error?.message || '导出失败', 'error');
   }

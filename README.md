@@ -42,15 +42,19 @@ fast_cms/
 │   │       ├── router.py  # 页面清单（PAGES）与后台/前台路由
 │   │       ├── templates/ # base + components + layouts + pages/**，Jinja2
 │   │       └── static/    # css/{base,admin,portal,public}.css、js/{app,core,ui,icons}.js、js/shell/**、js/pages/**
-│   ├── alembic/           # 迁移脚本
+│   ├── migrations/        # 迁移脚本
 │   ├── tests/             # pytest 单元与集成测试
 │   ├── data/              # SQLite、上传文件、自动生成的密钥（运行时）
+│   ├── requirements.txt   # 运行时依赖，与 pyproject 逐项一致（无 venv 部署入口）
+│   ├── requirements-dev.txt
 │   ├── pyproject.toml
 │   └── alembic.ini
 ├── docker/                # Dockerfile、entrypoint、compose.yml
-├── scripts/               # 安装/启动/发布、环境探测、契约与连通性检查、MySQL 冒烟
+├── scripts/               # 安装/启动/发布、统一命令行、环境探测、契约与连通性检查、MySQL 冒烟
 ├── docs/                  # 专题文档
 ├── openapi.json           # 由后端导出
+├── fastcms                # 统一命令行入口（Linux / macOS）
+├── fastcms.cmd            # 统一命令行入口（Windows）
 ├── .env.example
 └── Makefile
 ```
@@ -104,15 +108,47 @@ fast_cms/
 
 ## 一键安装（新机器）
 
-不需要事先知道服务器装了什么，脚本会自己探测：
+统一入口是 `fastcms`（从任何目录可跑，不依赖 make / 当前目录）；下面两个「一键安装 / 一键启动」小节列的是它背后的细节，可直接用：
 
 ```bash
-python scripts/env_check.py          # 只探测：Python / Miniconda(Anaconda) / 数据库 / 端口 / 页面资源
+./fastcms doctor          # 只探测：Python / Miniconda / 数据库 / 端口 / 页面资源 / 依赖项
+./fastcms init            # 探测 → 创建 backend/.venv → 装后端依赖 → 初始化数据库
+./fastcms server          # 服务端一键部署：生产配置 + 0.0.0.0 + 打印对外地址（--http 用于无 HTTPS）
+```
+
+不需要事先知道服务器装了什么，脚本会自己探测（等价脚本形式）：
+
+```bash
+python scripts/env_check.py          # 只探测：Python / Miniconda(Anaconda) / 数据库 / 端口 / 页面资源 / 依赖项
 python scripts/install.py            # 探测 → 创建 backend/.venv → 装后端依赖 → 初始化数据库
 python scripts/install.py --prod     # 发布安装：不装 dev 依赖
 python scripts/install.py --use-conda --conda-env fastcms   # 用 conda 建 3.12 环境承载后端，不创建 venv
 python scripts/install.py --recreate # 删掉并重建 backend/.venv
 ```
+
+### 不建虚拟环境，直接装进目标环境
+
+服务器上已经有统一维护的 Python / conda 环境时，不必再套一层 venv：
+
+```bash
+python scripts/install.py --system --deps-only   # 依赖装进当前解释器，代码从源码目录运行
+python scripts/install.py --system --user        # 没有 root 权限时装进 ~/.local
+python scripts/start.py --no-venv                # 启动器不再创建 backend/.venv
+```
+
+`--deps-only` 走的是 `backend/requirements.txt`，**不做 editable 安装**：代码始终从源码目录读取，
+模板与静态资源不依赖打包规则，升级就是覆盖源码。依赖装完后可以直接手动拉起：
+
+```bash
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+两点需要注意：
+
+- Debian 12 / Ubuntu 23.04+ 的系统 Python 受 PEP 668 保护，`pip install` 会被拒绝。脚本会拦下并给出三个选项
+  （建 venv / `--user` / `--break-system-packages`），不会静默改写系统环境；
+- `requirements.txt` 与 `pyproject.toml` 的依赖逐项一致，由 `backend/tests/unit/test_requirements_sync.py` 校验，
+  不会出现"两边装出来的包不一样"。
 
 Windows 双击 `install.cmd`，Linux / macOS 执行 `./install.sh`（Make 环境可用 `make install`）。两个包装脚本会按
 「已有 venv → Miniconda/Anaconda/Miniforge 的 base 或指定环境 → 系统 Python」的顺序挑选解释器；即使系统 Python 低于
@@ -122,6 +158,12 @@ Windows 双击 `install.cmd`，Linux / macOS 执行 `./install.sh`（Make 环境
 ## 一键启动（推荐）
 
 无需 Docker、MySQL、Redis 或 GNU Make。启动器会自动创建后端虚拟环境、安装缺失依赖、生成 `.env`、执行数据库初始化，并在默认端口被占用时自动后移选择空闲端口。**只拉起一个进程**，后台页面、前台站点与 API 都在同一端口上。
+
+```bash
+./fastcms dev        # 开发：单进程 + 热重载，只监听 127.0.0.1
+./fastcms server     # 服务端：监听 0.0.0.0，打印其他机器该访问的地址
+./fastcms test       # 独立测试库 + 固定测试口令，启动即可测试
+```
 
 Windows（cmd / PowerShell）：
 
@@ -143,6 +185,7 @@ chmod +x start.sh   # 首次
 | 模式 | 说明 |
 |---|---|
 | `dev`（默认） | 单进程 `uvicorn --reload`，只监听 `127.0.0.1`，默认端口 8000，被占用时依次后移 |
+| `server` | 关闭热重载，固定监听 `0.0.0.0`，启动后打印其他机器该访问的地址（服务端部署用） |
 | `preview` | 关闭热重载，按 `.env` 的 `APP_HOST` / `APP_PORT` 监听，适合对内演示或容器外试跑 |
 | `test` | 独立测试库 `backend/data/quickstart-test.db`，不触碰开发库，启动即可测试 |
 
@@ -166,6 +209,7 @@ make install   # 等价于 python scripts/install.py：探测环境、装依赖�
 make env-check # 只做环境探测
 make dev       # http://localhost:8000/admin （热重载）
 make preview   # 按 .env 的 APP_HOST/APP_PORT 启动，关闭热重载
+make server    # 服务端一键部署：无 .env 自动生成 production 配置（HTTP=1 用于无 HTTPS）
 ```
 
 首次初始化会创建 `admin` 账号，口令固定、不再生成随机密码：
@@ -200,15 +244,62 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 
 所有配置从环境变量读取，其次读取仓库根目录 `.env`，最后使用代码默认值。完整示例见 [.env.example](.env.example)。
 
-关键默认值：
+**`.env` 只需要写你要改的项。** `.env.example` 里只有 7 项是生效的（核心配置），其余 47 项全部注释掉，注释里的值就是代码默认值——不写和取消注释的运行结果完全一样。所以一份 `.env` 通常就是十来行。
+
+| 核心项 | 默认 | 说明 |
+|---|---|---|
+| `APP_ENV` | `dev` | `dev` / `production`；对外开放请用 `production` |
+| `APP_HOST` | `127.0.0.1` | **要让其他机器访问必须是 `0.0.0.0`** |
+| `APP_PORT` | `8000` | 页面、前台与 API 共用这一个端口 |
+| `APP_SECRET_KEY` | 自动生成到 `<数据根>/.secret` | 生产建议显式注入 |
+| `INITIAL_ADMIN_PASSWORD` | `fast_cms_123` | `production` 下留空会拒绝启动 |
+| `APP_TIMEZONE` | `Asia/Shanghai` | 系统时区初值，首次种子后由系统参数接管 |
+| `AUTH_COOKIE_SECURE` | 按环境自动 | 用 `http://` 访问时必须设 `false`，否则登录 15 分钟后掉线 |
+
+其余高级项（数据库、Redis、调度、限流、通知、IP 归属地等）按需取消注释即可，取值含义见 `.env.example` 内的行内注释。
+
+### 服务端一条命令部署
+
+新机器 clone 下来，一条命令就能对外提供服务（依赖、`.env`、数据库初始化都会自动补齐）：
+
+```bash
+fastcms server                        # 服务端一键部署（推荐）
+python scripts/start.py server        # 等价：监听 0.0.0.0，打印其他机器该访问的地址
+make server                           # 等价写法
+```
+
+没有 `.env` 时会自动生成「对外提供服务」的配置，并在终端打印一次初始口令：
+
+| 写入项 | 值 | 原因 |
+|---|---|---|
+| `APP_ENV` | `production` | 强制强口令、Cookie 按 HTTPS 规则下发 |
+| `APP_HOST` | `0.0.0.0` | 否则只有本机能访问 |
+| `INITIAL_ADMIN_PASSWORD` | 随机 16 位（打印一次） | 生产不允许默认口令 |
+| `APP_DOCS_ENABLED` | `false` | 对外服务时收起 `/docs` 与 `/openapi.json` |
+
+`.env` 已存在时**一律尊重现有配置、绝不覆盖**，只在 `APP_ENV` 不是 `production` 时打印提醒；重复执行不会更换口令或密钥（幂等）。
+
+没有 HTTPS、直接用 `http://<内网IP>:8000` 访问时，加 `--http`（额外写入 `AUTH_COOKIE_SECURE=false`）：
+
+```bash
+fastcms server --http                 # 或 python scripts/start.py server --http / make server HTTP=1
+```
+
+不加 `--http` 而实际走明文 HTTP 的话，浏览器不会保存刷新令牌，表现为"能登录、15 分钟后掉线"。`start.py server` 启动时会检测这个组合并直接提示。
+
+启动后终端会打印形如 `http://10.213.25.186:8000/admin` 的地址，把它发给使用者即可；管理员账号是 `admin`，口令在首次启动输出里（只显示一次）或 `.env` 的 `INITIAL_ADMIN_PASSWORD`。
+
+`python scripts/install.py --server` 做的是同一件事（写配置 + 装依赖 + 初始化库），适合想先准备好环境、再单独控制启动的场景；日常直接用 `start.py server` 即可。
+
+其他常用项（默认值即下表，需要时在 `.env` 里取消注释）：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `APP_ENV` | `dev` | `dev` / `production` / `test` |
-| `APP_TIMEZONE` | `Asia/Shanghai` | 系统时区初值；首次种子后由系统参数 `system.timezone` 接管，页面展示、日志时间戳、CSV 导出、通知正文与任务默认时区统一跟随，后台改完即时生效、重启读回 |
 | `SCHEDULER_TIMEZONE` | 留空 | 留空 = 任务默认时区跟随系统时区；需要分离时填 IANA 时区名 |
 | `API_PREFIX` | `/api/v1` | 后端业务路由统一前缀；`/healthz`、`/readyz`、`/docs` 不受影响 |
-| `DB_URL` | SQLite `backend/data/fastcms.db` | 留空即使用绝对路径默认值 |
+| `DATA_DIR` | `backend/data` | **运行时数据根目录**：库、上传、签名密钥、迁移备份、启动锁、日志都放这里；相对路径以仓库根为基准 |
+| `DB_PATH` | `<数据根>/fastcms.db` | SQLite 库文件路径（比 `DB_URL` 直观）；相对路径以数据根为基准；优先级 `DB_URL` > `DB_PATH` > 默认 |
+| `DB_URL` | SQLite `<数据根>/fastcms.db` | 显式数据库连接串，留空按 `DB_PATH` / 默认推导 |
 | `REDIS_ENABLED` | `false` | 关闭时不会导入或连接 Redis |
 | `SCHEDULER_MODE` | `embedded` | `embedded` / `standalone` / `disabled` |
 | `SCHEDULER_SYNC_SECONDS` | `30` | standalone 同步任务定义的间隔 |
@@ -216,13 +307,11 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 | `SCHEDULER_PYTHON_ENABLED` | `true` | 是否允许 Python 脚本任务；关闭后禁止创建/恢复/触发 |
 | `AUTH_ACCESS_TTL_MIN` | `15` | access token 分钟 |
 | `AUTH_REFRESH_TTL_DAYS` | `7` | refresh token 天数 |
-| `AUTH_COOKIE_SECURE` | 按环境自动 | 本地/测试环境不下发 `Secure`，其余环境默认下发；显式设 `true/false` 覆盖 |
 | `AUTH_MAX_FAILED` / `AUTH_LOCK_MINUTES` | `5` / `15` | 同一用户名连续失败次数与锁定时长 |
 | `LOGIN_RATE_LIMIT` / `LOGIN_RATE_WINDOW` | `30` / `60` | 单 IP 登录尝试上限（超限 429） |
 | `RATE_LIMIT_ENABLED` | `true` | 敏感接口窗口限流总开关 |
 | `TRUST_PROXY` | `false` | 仅在可信反向代理后开启，采用 `X-Forwarded-For` 首跳作为客户端 IP |
 | `CACHE_MAX_ITEMS` | `4096` | 无 Redis 时进程内缓存条目上限，防止限流计数无限增长 |
-| `APP_SECRET_KEY` | 自动生成到 `backend/data/.secret` | 生产环境建议显式注入 |
 | `UPLOAD_MAX_MB` | `20` | 上传大小上限 |
 | `AUTO_MIGRATE` | `false` | 生产默认关闭，由 CLI 显式迁移 |
 | `NOTIFY_ENABLED` | `true` | IM 推送总开关，关闭后不再入队也不再投递 |
@@ -232,6 +321,33 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 | `NOTIFY_ALLOW_PRIVATE_TARGET` | `false` | 放开内网/回环地址与非默认端口，仅供本地联调或自建内网网关 |
 
 敏感配置（数据库连接、密钥、Cookie 域名）只允许来自环境变量，不写入数据库。
+
+### 数据与代码分离（升级不碰数据）
+
+所有运行时数据都集中在**数据根目录** `DATA_DIR`（默认 `backend/data`）：SQLite 库、上传文件、签名密钥、迁移备份、启动锁、日志。代码只放在 `backend/app/` 与 `backend/migrations/`，两者互不依赖——**升级代码就是替换源码，数据原地不动**。
+
+| 数据项 | 位置 | 说明 |
+|---|---|---|
+| SQLite 库 | `<数据根>/fastcms.db` | 用 `DB_PATH` 改库文件名/位置 |
+| 上传文件 | `<数据根>/uploads` | 用 `STORAGE_LOCAL_DIR` 改 |
+| 签名密钥 | `<数据根>/.secret` | 自动生成，重启不变 |
+| 迁移备份 | `<数据根>/backups` | 每次 SQLite 迁移前自动备份 |
+| 启动锁 | `<数据根>/bootstrap.lock` | 多 worker 串行引导 |
+| 运行日志 | `<数据根>/logs` | 仅 `start.py` 启动器写入 |
+
+要把整份数据搬到别的磁盘（数据盘、NAS 挂载点），只需三步：
+
+```bash
+# 1. 停服（Ctrl+C，或 systemd/docker 停止服务）
+# 2. 迁移数据目录（保留权限/属主）
+mv backend/data /mnt/fastcms-data
+
+# 3. 在 .env 里指向新位置并重启
+echo "DATA_DIR=/mnt/fastcms-data" >> .env
+python scripts/start.py server
+```
+
+库文件单独换位置同理：设 `DB_PATH=/mnt/data/fastcms.db`（绝对路径）或 `DB_PATH=data/app.db`（相对数据根）。
 
 ### 自定义挂载路径与 API 前缀
 
@@ -271,6 +387,22 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 
 ## 常用命令
 
+统一入口是 **`fastcms`**（`./fastcms` 或 `fastcms.cmd`，亦可 `python scripts/fastcms.py`）——不依赖 make，从任何目录都能跑。它把原来的安装/启动/探测/门禁收敛成一条命令，业务命令（`db` / `seed` / `backup` 等）直接转发 `app.cli`。
+
+| 命令 | 说明 |
+|---|---|
+| `fastcms doctor` | 环境探测（Python / conda / 端口 / 数据目录） |
+| `fastcms init` | 一键安装：依赖 + `.env` + 数据库（`--server` 为服务端形态） |
+| `fastcms server` | 服务端一键部署：生产配置 + `0.0.0.0` + 打印对外地址（`--http` 用于无 HTTPS） |
+| `fastcms dev` / `preview` / `test` | 本地开发（热重载）/ 预览 / 独立测试库 |
+| `fastcms upgrade` | 拉取最新代码 + 更新依赖 + 迁移 + 基线数据 |
+| `fastcms check` | 全部门禁：lint + test + contract + docs（等价 `make check`） |
+| `fastcms env [--self-test]` | 打印配置解析结果（单一事实源） |
+| `fastcms db` / `seed` / `sync-rbac` / `backup` / `restore` / `scheduler` … | 转发 `app.cli` 业务命令 |
+| `fastcms gen` / `export-openapi` / `check-permissions` | 代码生成与契约 |
+
+传统入口仍然可用（等价，内部都走同一套逻辑）：
+
 | 命令 | 说明 |
 |---|---|
 | `start.cmd` / `./start.sh` | 跨平台一键启动（自动安装依赖、迁移、选择空闲端口） |
@@ -278,11 +410,13 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 | `make env-check` | 只探测环境（Python / Miniconda / 数据库 / 端口 / 页面资源） |
 | `make install` | 一键安装环境与数据库 |
 | `make dev` / `make preview` | 启动开发服务（热重载 / 关闭热重载） |
+| `make server` | 服务端一键部署（无 `.env` 自动生成 production 配置；`HTTP=1` 用于无 HTTPS） |
+| `make check` | `gate.py all`：lint（含 tsc）+ test（含前端行为测试）+ contract + docs + security（与 CI / release 同源） |
 | `make test` | pytest |
 | `make lint` | ruff + mypy |
 | `make openapi` | 导出 `openapi.json` |
 | `make contract-check` | 重新导出并检查契约、权限覆盖与前后端页面连通性 |
-| `make release` | 发布门禁（lint + 测试 + 契约）并生成 `dist-release/` 发布包 |
+| `make release` | 跑完整 `gate.py all` 门禁后生成 `dist-release/` 发布包 |
 | `make backup` | 备份 SQLite |
 | `make restore FILE=…` | 恢复 SQLite（覆盖当前数据库） |
 | `make db-upgrade` | 执行 Alembic 迁移 |
@@ -291,35 +425,35 @@ Windows（Git Bash）使用 `backend/.venv/Scripts/python.exe`。启动后直接
 
 ### CLI
 
+`fastcms` 转发到底层 `app.cli`（从任何目录可用，等价于在 `backend/` 下 `python -m app.cli …`）：
+
 ```bash
-cd backend
-python -m app.cli init                 # 迁移 + 基线数据（幂等）
-python -m app.cli db upgrade           # 仅迁移（SQLite 自动备份）
-python -m app.cli db current           # 当前迁移版本
-python -m app.cli seed                 # 同步基线数据
-python -m app.cli sync-rbac            # 同步权限与内置角色
-python -m app.cli reset-password admin --random
-python -m app.cli backup [--output PATH]
-python -m app.cli restore PATH --yes
-python -m app.cli scheduler            # 独立调度器
-python -m app.cli export-openapi --output ../openapi.json
-python -m app.cli check-permissions
-python -m app.cli gen --table crm_customer --module crm --resource customer --write
+fastcms db upgrade           # 仅迁移（SQLite 自动备份）
+fastcms db current           # 当前迁移版本
+fastcms seed                 # 同步基线数据
+fastcms sync-rbac            # 同步权限与内置角色
+fastcms reset-password admin --random
+fastcms backup [--output PATH]
+fastcms restore PATH --yes
+fastcms scheduler            # 独立调度器
+fastcms export-openapi
+fastcms check-permissions
+fastcms gen --table crm_customer --module crm --resource customer --write
 ```
 
 ## 发布
 
 ```bash
-python scripts/release.py check     # 只跑门禁：ruff、pytest、OpenAPI 导出、契约校验、接口连通性
+python scripts/release.py check     # 只跑门禁（gate.py all 五组全部步骤）
 python scripts/release.py package   # 门禁通过后打包（--format tar.gz 可换成 tar 包）
 python scripts/release.py all       # 门禁 + 打包
 make release                        # 等价 all
 ```
 
 产物为 `dist-release/fastcms-<版本>-<时间>.zip`，内含后端源码（含 `app/web` 下的模板与静态资源）与迁移、`backend/pyproject.toml`、
-`scripts/`、`docs/`、`docker/`、`openapi.json`、`.env.example`、`README.md` 以及 `install.*` / `start.*` 包装脚本；
+`scripts/`、`docs/`、`docker/`、`openapi.json`、`.env.example`、`README.md` 以及 `install.*` / `start.*` / `fastcms*` 入口脚本；
 不含 `backend/.venv`、数据库与上传文件。同目录的 `manifest.txt` 记录文件清单、SHA256 与发布配置提醒。
-目标机器解包后直接 `install.cmd` / `./install.sh --prod`，再 `start.cmd preview` 即可。
+目标机器解包后直接 `./fastcms server`（或 `install.cmd` / `./install.sh --prod`，再 `start.cmd preview`）即可。
 
 发布前 `.env` 至少要改这几项（`release.py` 会逐项提醒，但不会替你改）：
 
@@ -376,10 +510,11 @@ SCHEDULER_MODE=standalone \
 docker compose -f docker/compose.yml --profile full up -d --build
 ```
 
-容器以非 root 用户运行，根文件系统只读，`backend/data` 为持久卷，`/tmp` 为 tmpfs。入口脚本在 `AUTO_MIGRATE=true` 时执行迁移与幂等种子。
+容器以非 root 用户运行，根文件系统只读，数据根目录（默认 `/app/backend/data`）为持久卷，`/tmp` 为 tmpfs。入口脚本在 `AUTO_MIGRATE=true` 时执行迁移与幂等种子。搬迁数据只需把卷挂载到新目录并设 `DATA_DIR` 指向同一路径（`DB_URL` / `STORAGE_LOCAL_DIR` 留空时由它推导，卷挂载点默认跟随 `DATA_DIR`），容器内其余代码保持只读不动。
 
 ## 文档
 
+- [架构梳理与优化方案](docs/history/架构梳理与优化方案.md) — 现状架构、问题诊断与分阶段改进计划
 - [认证与权限](docs/认证与权限.md)
 - [主题模板](docs/主题模板.md)
 - [定时任务](docs/定时任务.md)

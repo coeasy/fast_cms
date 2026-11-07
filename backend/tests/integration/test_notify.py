@@ -9,8 +9,8 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.db.base import utcnow
 from app.db.session import session_scope
-from app.modules.notify import channels, service
-from app.modules.notify.models import NotifyRecord
+from app.modules.ops.notify import channels, service
+from app.modules.ops.notify.models import NotifyRecord
 from tests.conftest import auth
 
 API = settings.api_prefix
@@ -70,6 +70,18 @@ def test_channel_crud_never_returns_raw_credentials(client: TestClient, admin_to
     body = updated.json()["data"]
     assert body["has_secret"] is False
     assert body["webhook_url_masked"] == channel["webhook_url_masked"]
+
+    # channel_type 是 Update schema 允许的字段，服务层曾漏了赋值：接口 200
+    # 但值不变。这里钉住「响应 + 详情」两个方向。
+    switched = client.put(
+        f"{API}/notify/channels/{channel['id']}",
+        headers=headers,
+        json={"channel_type": "webhook"},
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["data"]["channel_type"] == "webhook"
+    detail_after = client.get(f"{API}/notify/channels/{channel['id']}", headers=headers)
+    assert detail_after.json()["data"]["channel_type"] == "webhook"
 
     duplicate = client.post(f"{API}/notify/channels", headers=headers, json=payload)
     assert duplicate.status_code == 409
@@ -150,6 +162,8 @@ def test_notice_publish_queues_once_and_test_send_delivers(
     assert sent[-1]["channel_type"] == "dingtalk"
     assert sent[-1]["event"] == "test"
     assert sent[-1]["dedupe_key"] == tested.json()["data"]["dedupe_key"]
+    # 投递时使用解密后的明文 secret（P0-3）
+    assert sent[-1]["secret"] == "SECabc123456"
 
     detail = client.get(f"{API}/notify/records/{records[0]['id']}", headers=headers)
     assert "正文内容" in detail.json()["data"]["content"]

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import TEST_DB, auth, login
+from tests.conftest import auth, current_db_path, login
 
 
 def test_public_endpoints(client: TestClient) -> None:
@@ -349,7 +349,7 @@ def test_notices_and_files(client: TestClient, admin_token: str) -> None:
 
 
 def test_codegen_preview_and_write(client: TestClient, admin_token: str) -> None:
-    with sqlite3.connect(TEST_DB) as connection:
+    with sqlite3.connect(current_db_path()) as connection:
         connection.execute(
             "CREATE TABLE IF NOT EXISTS demo_article ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -390,7 +390,7 @@ def test_codegen_preview_and_write(client: TestClient, admin_token: str) -> None
 def test_codegen_download_and_write(
     client: TestClient, admin_token: str, tmp_path: Path, monkeypatch
 ) -> None:
-    with sqlite3.connect(TEST_DB) as connection:
+    with sqlite3.connect(current_db_path()) as connection:
         connection.execute(
             "CREATE TABLE IF NOT EXISTS demo_article ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -426,7 +426,7 @@ def test_codegen_download_and_write(
     assert overwrite.json()["code"] == "CODEGEN_TARGET_EXISTS"
 
 
-def test_logout_and_refresh_rotation(client: TestClient) -> None:
+def test_logout_and_refresh_rotation(client: TestClient, monkeypatch) -> None:
     data = login(client, "admin", "Owner123456")
     assert data["must_change_password"] is False
     refresh_cookie = client.cookies.get("fastcms_refresh")
@@ -438,6 +438,9 @@ def test_logout_and_refresh_rotation(client: TestClient) -> None:
     assert new_cookie and new_cookie != refresh_cookie
 
     client.cookies.set("fastcms_refresh", refresh_cookie, path="/api/v1/auth")
+    # 紧接在轮换之后重放上一代 token 属于「多标签页并发」，走宽限分支补发
+    # access token；把窗口压成 0 才能测到真正的重放检测。
+    monkeypatch.setattr("app.modules.sys.auth.service.REFRESH_REUSE_GRACE_SECONDS", 0)
     reused = client.post("/api/v1/auth/refresh")
     assert reused.status_code == 401
     assert reused.json()["code"] == "AUTH_REFRESH_REUSED"
@@ -608,3 +611,41 @@ def test_data_scope_limits_people_visibility(client: TestClient, admin_token: st
     for dept_id in (dept_a_sub, extra, dept_a_child, dept_b, dept_a):
         assert client.delete(f"/api/v1/system/depts/{dept_id}", headers=headers).status_code == 200, dept_id
     assert client.delete(f"/api/v1/system/roles/{role_id}", headers=headers).status_code == 200
+
+
+def test_login_logs_keyset_pagination(client: TestClient, admin_token: str) -> None:
+    """P1-5 keyset 游标分页：不依赖 page/total，按 next_cursor 翻页且不重复不遗漏。"""
+    headers = auth(admin_token)
+    # 先走 offset 拿总数作为参照
+    baseline = client.get("/api/v1/monitor/login-logs", headers=headers, params={"page_size": 5})
+    assert baseline.status_code == 200, baseline.text
+    total = baseline.json()["data"]["total"]
+
+    collected: list[int] = []
+    cursor = None
+    for _ in range(100):  # 安全上限，防止测试死循环
+        params = {"keyset": "true", "page_size": 5}
+        if cursor is not None:
+            params["cursor"] = cursor
+        resp = client.get("/api/v1/monitor/login-logs", headers=headers, params=params)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert "next_cursor" in data, "keyset 响应必须带 next_cursor"
+        # 游标语义：本页所有 id 必须严格小于传入的 cursor（降序，不重不漏）
+        if cursor is not None:
+            assert all(item["id"] < cursor for item in data["items"]), "下一页必须严格小于游标"
+        for item in data["items"]:
+            collected.append(item["id"])
+        next_cursor = data["next_cursor"]
+        if next_cursor is None:
+            break
+        # next_cursor 是本页最后一条的 id，作为下一页的游标；必须严格递减防止回环
+        assert collected and next_cursor == collected[-1], "游标必须是本页最后一条 id"
+        cursor = next_cursor
+    else:
+        raise AssertionError("keyset 分页超过 100 页仍未结束（疑似死循环）")
+
+    assert len(collected) == total, f"keyset 收集 {len(collected)} 条，offset 口径 {total} 条"
+    assert len(set(collected)) == len(collected), "keyset 分页出现重复记录"
+    # 降序：id 严格递减
+    assert all(collected[i] > collected[i + 1] for i in range(len(collected) - 1)), "应按 id 降序返回"

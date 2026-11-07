@@ -5,36 +5,54 @@
    ========================================================================== */
 
 import {
-  $, $$, api, appUrl, applyTheme, brandGradient, can, clearSession, esc, formatTime,
-  getPreferredThemeCode, hasSessionHint, internalPath, openModal, PAGE, PORTAL_BASE,
-  refreshAccessToken, setPreferredThemeCode, setSystemTimezone, state, themeState, toast,
-  DEFAULT_THEME, DEFAULT_THEME_CODE,
-} from '../core.js';
+  $,
+  $$,
+  appUrl,
+  esc,
+  internalPath,
+  PAGE,
+  PORTAL_BASE
+} from '../core/base.js';
+import {
+  clearSession,
+  hasSessionHint,
+  state
+} from '../core/session.js';
+import {
+  openModal,
+  toast
+} from '../core/dialog.js';
+import {
+  api,
+  refreshAccessToken
+} from '../core/request.js';
+import {
+  formatTime,
+  setSystemTimezone
+} from '../core/time.js';
+import {
+  applyTheme,
+  brandGradient,
+  getPreferredThemeCode,
+  setPreferredThemeCode,
+  themeState,
+  DEFAULT_THEME,
+  DEFAULT_THEME_CODE
+} from '../core/theme.js';
 import { icon } from '../icons.js';
+import { renderState } from '../core/other.js';
+import { msg } from '../core/messages.js';
 
-export const ROUTE_PERMISSIONS = {
-  '/dashboard': 'dashboard:view',
-  '/system/user': 'system:user:list',
-  '/system/role': 'system:role:list',
-  '/system/menu': 'system:menu:list',
-  '/system/dept': 'system:dept:list',
-  '/system/permission': 'system:permission:list',
-  '/system/dict': 'system:dict:list',
-  '/system/config': 'system:config:list',
-  '/system/theme': 'system:theme:list',
-  '/monitor/online': 'monitor:online:list',
-  '/monitor/server': 'monitor:server:read',
-  '/monitor/login-log': 'monitor:login-log:list',
-  '/monitor/operation-log': 'monitor:operation-log:list',
-  '/schedule/job': 'schedule:job:list',
-  '/schedule/template': 'schedule:template:list',
-  '/schedule/log': 'schedule:log:list',
-  '/content/notice': 'system:notice:list',
-  '/notify/channel': 'notify:channel:list',
-  '/notify/record': 'notify:record:list',
-  '/tool/file': 'tool:file:list',
-  '/tool/codegen': 'tool:codegen:list',
-};
+/* P2-5：不再保存前端静态「路由 → 权限码」映射表。
+   可访问路由集合由 /auth/me 下发的菜单树（服务端已按权限过滤）派生，
+   权限码新增/改名不需要再改这份前端映射。 */
+function collectMenuPaths(menus, out = new Set()) {
+  for (const item of menus || []) {
+    if (item?.path) out.add(item.path);
+    if (item?.children?.length) collectMenuPaths(item.children, out);
+  }
+  return out;
+}
 
 const NON_ADMIN_PATHS = new Set(['/account/profile', '/account/password']);
 const PUBLIC_PATHS = new Set(['/login', '/403', '/404']);
@@ -54,8 +72,11 @@ let publicThemes = { active: null, items: [] };
 
 /* ------------------------------- 登录守卫 ------------------------------- */
 
-function redirect(path) {
-  window.location.replace(appUrl(path));
+function redirect(path, { next = false } = {}) {
+  // 未登录深链要能回到原页面：把当前路径带进登录页，登录成功后跳回来，
+  // 否则用户每次点分享链接都得自己再找一遍菜单。
+  const target = next && path === 'login' ? `${path}?next=${encodeURIComponent(PAGE)}` : path;
+  window.location.replace(appUrl(target));
 }
 
 async function loadPublicConfig() {
@@ -74,19 +95,19 @@ async function loadPublicConfig() {
 
 async function ensureSession() {
   if (!hasSessionHint()) return null;
+  // retry:false —— 刷新决策由这里统一做一次。让 request 内部也去刷新，
+  // 会出现「request 刷新失败跳登录」+「这里再刷新一次」的双重请求，
+  // 第二次必然拿着已经被清掉的 cookie 再失败一遍。
   try {
-    return await api.get('/auth/me', null, { silent: true });
+    return await api.get('/auth/me', null, { silent: true, retry: false });
   } catch (error) {
-    if (error?.status === 401) {
-      const token = await refreshAccessToken({ redirect: false });
-      if (token) {
-        try {
-          return await api.get('/auth/me', null, { silent: true });
-        } catch {
-          return null;
-        }
-      }
-    }
+    if (error?.status !== 401) return null;
+  }
+  const token = await refreshAccessToken({ redirect: false });
+  if (!token) return null;
+  try {
+    return await api.get('/auth/me', null, { silent: true, retry: false });
+  } catch {
     return null;
   }
 }
@@ -107,7 +128,7 @@ export async function bootAdmin() {
       boot?.remove();
       return true;
     }
-    redirect('login');
+    redirect('login', { next: true });
     return false;
   }
 
@@ -116,6 +137,8 @@ export async function bootAdmin() {
   state.permissions = me.permissions || [];
   state.isSuperuser = Boolean(me.is_superuser);
   state.isAdmin = Boolean(me.is_admin);
+  // 可访问路由由服务端按权限过滤后的菜单树派生（P2-5），不再依赖静态映射
+  state.allowedRoutes = collectMenuPaths(me.menus || []);
 
   if (me.user?.must_change_password && PAGE !== '/account/password') {
     redirect('account/password');
@@ -126,8 +149,7 @@ export async function bootAdmin() {
       redirect('403');
       return false;
     }
-    const required = ROUTE_PERMISSIONS[PAGE];
-    if (required && !can(required)) {
+    if (!NON_ADMIN_PATHS.has(PAGE) && !state.allowedRoutes.has(PAGE)) {
       redirect('403');
       return false;
     }
@@ -407,7 +429,7 @@ function openThemeMenu(anchor) {
         }
       }
       closePopover();
-      toast('主题已切换', 'success', 1600);
+      toast(msg('common.themeSwitched'), 'success', 1600);
     });
   });
 }
@@ -433,8 +455,13 @@ function openUserMenu(anchor) {
   node?.querySelector('[data-logout]')?.addEventListener('click', async () => {
     try {
       await api.post('/auth/logout', {}, { silent: true });
-    } catch {
-      /* 会话可能已失效，仍然清理本地状态 */
+    } catch (error) {
+      // 401 说明会话本来就失效了，可以安静地走。其它错误（CSRF 拒绝、
+      // 5xx、网络中断）意味着服务端会话可能仍然有效——只清本地状态会让
+      // 用户以为已退出，实际刷新页面又自动登录，必须如实告知。
+      if (error?.status !== 401) {
+        toast('已退出本机登录，但服务端会话可能仍未注销，请关闭浏览器或联系管理员', 'error');
+      }
     }
     clearSession();
     redirect('login');
@@ -499,7 +526,7 @@ async function openNoticePanel(anchor) {
   node?.querySelector('[data-read-all]')?.addEventListener('click', async () => {
     try {
       await api.post('/content/notices/read-all', {});
-      toast('已全部标为已读', 'success');
+      toast(msg('common.allRead'), 'success');
       await refreshUnread();
       closePopover();
     } catch {
@@ -513,7 +540,7 @@ async function showNotice(id) {
   const title = $('#notice-modal-title');
   if (!body) return;
   title.textContent = '公告详情';
-  body.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(body, { state: 'loading' });
   openModal('notice-modal');
   try {
     const notice = await api.get(`/content/notices/${id}/published`);
@@ -526,7 +553,7 @@ async function showNotice(id) {
       await refreshUnread();
     }
   } catch (error) {
-    body.innerHTML = `<div class="table-empty">${esc(error?.message || '公告加载失败')}</div>`;
+    renderState(body, { state: 'error', message: error?.message });
   }
 }
 

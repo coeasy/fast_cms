@@ -1,6 +1,23 @@
 import {
-  $, api, appUrl, esc, setAccessToken, setFieldError, setLoading, state, toast,
-} from '../../core.js';
+  $,
+  appUrl,
+  esc
+} from '../../core/base.js';
+import {
+  setAccessToken,
+  state
+} from '../../core/session.js';
+import {
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  setFieldError,
+  setLoading
+} from '../../core/form.js';
+import { msg } from '../../core/messages.js';
 
 let policy = { minLength: 8, description: '' };
 
@@ -77,7 +94,7 @@ async function submit(event) {
     setAccessToken(result.access_token);
     state.user = result.user;
     if (state.me) state.me.user = result.user;
-    toast('密码修改成功，其他会话已失效', 'success');
+    toast(msg('password.changed'), 'success');
     setTimeout(() => {
       window.location.replace(appUrl(state.isAdmin ? 'dashboard' : 'account/profile'));
     }, 600);

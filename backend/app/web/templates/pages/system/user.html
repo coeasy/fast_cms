@@ -17,9 +17,9 @@
   {% endcall %}
 
   {{ ui.batch_bar('user-batch-bar', [
-    {'act': 'enable', 'label': '批量启用', 'perm': 'system:user:status'},
-    {'act': 'disable', 'label': '批量禁用', 'perm': 'system:user:status'},
-    {'act': 'delete', 'label': '批量删除', 'perm': 'system:user:delete', 'danger': true}
+    {'act': 'enable', 'label': '批量启用', 'perm': 'system:user:batch'},
+    {'act': 'disable', 'label': '批量禁用', 'perm': 'system:user:batch'},
+    {'act': 'delete', 'label': '批量删除', 'perm': 'system:user:batch', 'danger': true}
   ]) }}
 
   {{ ui.data_table([

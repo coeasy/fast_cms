@@ -26,10 +26,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import env_check  # noqa: E402
-from env_check import BACKEND, IS_WINDOWS, ROOT, VENV  # noqa: E402
+import env_check
+from env_check import BACKEND, IS_WINDOWS, ROOT, VENV
 
 DIST = ROOT / "dist-release"
+# 需要 Unix 可执行位的文件。Windows 上 os.stat 不带 x 位，ZipInfo.from_file
+# 会把它们写成 0o666；Linux 解包后 `./fastcms server` / `./install.sh --prod`
+# 直接 Permission denied。打包时显式补回 rwxr-xr-x（create_system=3 表示 Unix）。
+EXECUTABLE_FILES = frozenset(
+    {
+        "fastcms",
+        "install.sh",
+        "start.sh",
+        "docker/entrypoint.sh",
+    }
+)
 # 发布包内容：源码（含 HTML 模板与静态资源）+ 启动安装脚本，不含 venv、数据库与上传文件。
 # backend/migrations 必须带上：alembic.ini 的 script_location 指向它，
 # 少了它全新机器上 `app.cli init` 会直接报 "Path doesn't exist: .../migrations"，
@@ -50,7 +61,27 @@ INCLUDE_FILES = (
     "scripts/release.py",
     "scripts/check_contract.py",
     "scripts/check_api_coverage.py",
+    # gate.py 里的 7 个 contract 步骤 + security 步骤全部要带上：解包后
+    # `make check` / `make release` 少任一脚本都会 "can't open file"。
+    "scripts/check_frontend_imports.py",
+    "scripts/check_escape_sentinel.py",
+    "scripts/check_modules.py",
+    "scripts/check_security.py",
+    # 统一命令行与其依赖：缺了它们，目标机上 fastcms / make check 直接失败
+    "scripts/fastcms.py",
+    "scripts/config_probe.py",
+    "scripts/check_docs.py",
+    "scripts/mysql_smoke.py",
+    "scripts/gate.py",
+    "fastcms",
+    "fastcms.cmd",
+    # 无虚拟环境部署的入口：缺了它 install.py --deps-only 在目标机上直接失败
+    "backend/requirements.txt",
+    "backend/requirements-dev.txt",
     "openapi.json",
+    # gate.py 的 frontend-tsc 步骤读仓库根 tsconfig.json；解包后装上 typescript
+    # 要能跑 lint，必须把类型检查配置一起带走。
+    "tsconfig.json",
     ".env.example",
     "Makefile",
     "README.md",
@@ -62,7 +93,12 @@ INCLUDE_FILES = (
     "docker/compose.yml",
     "docker/entrypoint.sh",
 )
-INCLUDE_DOCS = tuple(f"docs/{name}" for name in sorted(os.listdir(ROOT / "docs")) if name.endswith(".md"))
+# docs/README.md 索引了 docs/history/*.md；只收顶层 md 会让解包后的
+# docs-check 引用到不存在的归档文档。递归收全，路径保持相对 docs/ 的形式。
+INCLUDE_DOCS = tuple(
+    f"docs/{path.relative_to(ROOT / 'docs').as_posix()}"
+    for path in sorted((ROOT / "docs").rglob("*.md"))
+)
 EXCLUDE_PARTS = ("__pycache__", ".pytest_cache", ".ruff_cache", "mypy_cache")
 
 # 发布配置检查项。这些全部有可用默认值（见 backend/app/core/config.py），
@@ -143,17 +179,17 @@ def read_version() -> str:
 
 
 def run_gate() -> None:
-    python = python_bin()
     report = env_check.build_report()
     print(env_check.render(report))
     if not report["ready"]:
         fail(f"环境缺少 {'、'.join(report['blocking'])}")
 
-    step([python, "-m", "ruff", "check", "app", "tests", "../scripts"], BACKEND)
-    step([python, "-m", "pytest", "-q"], BACKEND)
-    step([python, "-m", "app.cli", "export-openapi", "--output", "../openapi.json"], BACKEND)
-    step([python, str(ROOT / "scripts" / "check_contract.py")], ROOT)
-    step([python, str(ROOT / "scripts" / "check_api_coverage.py"), "--strict"], ROOT)
+    # P1-10：统一门禁清单（make check / CI / release 共用 scripts/gate.py），
+    # 避免三处步骤漂移——此前 release 漏掉 mypy / 权限校验 / 文档校验。
+    import gate
+
+    if gate.run(list(gate.ORDER)) != 0:
+        fail("质量门禁失败，详情见上方输出")
     log("质量门禁全部通过")
 
 
@@ -259,6 +295,32 @@ def write_manifest(files: list[Path], version: str, archive: Path, digest: str) 
     (DIST / "manifest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def normalize_tar_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    """tar.gz 转换时强制写回可执行位。
+
+    ``ZipFile.extractall()`` 不 chmod，``tar.add()`` 的 mode 又来自宿主文件系统
+    （Windows 上根本没有 x 位），所以 zip 里刚补好的 0o755 会在转 tar.gz 的
+    过程中再次丢掉。按清单直接写 TarInfo.mode，不依赖平台语义。
+    """
+    relative = info.name.partition("/")[2]
+    if relative in EXECUTABLE_FILES:
+        info.mode = 0o755
+    return info
+
+
+def apply_zip_mode(bundle: zipfile.ZipFile, path: Path, arcname: str) -> None:
+    """补回 Unix 可执行位（Windows 打包时 ``os.stat`` 不带 x 位）。
+
+    ``ZipInfo.external_attr`` 是在 ``ZipFile.close()`` 写中央目录时才落盘的，
+    所以 ``write()`` 之后改仍然生效；低位保留 DOS 属性，高位写 Unix 模式。
+    """
+    if path.relative_to(ROOT).as_posix() not in EXECUTABLE_FILES:
+        return
+    info = bundle.getinfo(arcname)
+    info.create_system = 3
+    info.external_attr = (0o100755 << 16) | (info.external_attr & 0xFFFF)
+
+
 def package() -> Path:
     version = read_version()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -269,7 +331,10 @@ def package() -> Path:
         fail("发布包内容为空，请检查源码目录是否完整")
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         for path in files:
-            bundle.write(path, f"fastcms-{version}/{path.relative_to(ROOT).as_posix()}")
+            relative = path.relative_to(ROOT).as_posix()
+            arcname = f"fastcms-{version}/{relative}"
+            bundle.write(path, arcname)
+            apply_zip_mode(bundle, path, arcname)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     write_manifest(files, version, archive, digest)
     log(f"发布包已生成：{archive}")
@@ -302,9 +367,14 @@ def main(argv: list[str] | None = None) -> int:
                 with zipfile.ZipFile(archive) as bundle:
                     bundle.extractall(stage.parent)
                 with tarfile.open(target, "w:gz") as tar:
-                    tar.add(stage, arcname=f"fastcms-{version}")
+                    tar.add(stage, arcname=f"fastcms-{version}", filter=normalize_tar_mode)
             archive.unlink()
-            log(f"已转为 tar.gz：{target}")
+            # manifest 原本写的是 zip 的文件名与 SHA256；zip 已删，若不重写，
+            # `fastcms verify` 会对着一个不存在的归档名和错误的摘要校验。
+            write_manifest(
+                collect(), version, target, hashlib.sha256(target.read_bytes()).hexdigest()
+            )
+            log(f"已转为 tar.gz：{target}（manifest.txt 已同步归档名与 SHA256）")
     return 0
 
 

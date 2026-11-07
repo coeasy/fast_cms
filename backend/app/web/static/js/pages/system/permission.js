@@ -1,4 +1,20 @@
-import { $, api, debounce, esc, formatDate, toast } from '../../core.js';
+import {
+  $,
+  debounce,
+  esc
+} from '../../core/base.js';
+import {
+  toast
+} from '../../core/dialog.js';
+import {
+  api
+} from '../../core/request.js';
+import {
+  formatDate
+} from '../../core/time.js';
+import {
+  renderState
+} from '../../core/other.js';
 
 let registry = { items: [], modules: [] };
 
@@ -11,13 +27,13 @@ export async function init() {
 
 async function load() {
   const host = $('#perm-modules');
-  host.innerHTML = '<div class="loading-block"><span class="spinner"></span></div>';
+  renderState(host, { state: 'loading' });
   try {
     const include = $('#show-deprecated')?.checked || false;
     registry = await api.get('/system/permissions', { include_deprecated: include });
     render();
   } catch (error) {
-    host.innerHTML = `<div class="card"><div class="table-empty">${esc(error?.message || '加载失败')}</div></div>`;
+    renderState(host, { state: 'error', message: error?.message, wrap: 'card' });
     toast(error?.message || '权限清单加载失败', 'error');
   }
 }
@@ -37,7 +53,7 @@ function render() {
   if (summary) summary.textContent = `共 ${total} 项权限`;
 
   if (!modules.length) {
-    host.innerHTML = '<div class="card"><div class="table-empty">没有匹配的权限码</div></div>';
+    renderState(host, { state: 'empty', emptyText: '没有匹配的权限码', wrap: 'card' });
     return;
   }
 
